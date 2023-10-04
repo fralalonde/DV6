@@ -36,7 +36,7 @@ static DW6_CTRL: Shared<Dw6ControlInner> = Shared::uninit("DW6_CTRL");
 static DW6_SYSEX_DUMP: Shared<Vec<u8>> = Shared::uninit("DW6_SYSEX_DUMP");
 
 #[embassy_executor::task]
-async fn bstep_read() -> ! {
+async fn bstep_rx() -> ! {
     let mut bstep_in = MIDI_DIN_1_IN.lock().await;
     loop {
         if let Ok(Some(packet)) = bstep_in.receive().await {
@@ -46,18 +46,20 @@ async fn bstep_read() -> ! {
 }
 
 #[embassy_executor::task]
-async fn dw6_read() -> ! {
+async fn dw6_rx() -> ! {
     // exclusive locked FOREVER muahahaha
     let mut dw6_in = MIDI_DIN_2_IN.lock().await;
     loop {
-        if let Ok(Some(packet)) = dw6_in.receive().await {
-            packets_from_dw_6000(PacketList::single(packet)).await;
+        match dw6_in.receive().await {
+            Ok(Some(packet)) => packets_from_dw_6000(PacketList::single(packet)).await,
+            Err(midi_err) => error!("dw6 rx error {}", midi_err),
+            _ => warn!("dw6 rx nothing"),
         }
     }
 }
 
 #[embassy_executor::task]
-async fn dw6_dump() -> ! {
+async fn dw6_dump_request() -> ! {
     loop {
         let _ = dw6_send(PacketList::from_iter(dump_request_sysex())).await;
         Timer::after(Duration::from_millis(250)).await;
@@ -103,13 +105,13 @@ pub fn start_app(spawner: Spawner) {
 
     DW6_SYSEX_DUMP.init_static(Vec::with_capacity(32));
 
-    unwrap!(spawner.spawn(bstep_read()));
+    // unwrap!(spawner.spawn(bstep_rx()));
 
-    unwrap!(spawner.spawn(dw6_read()));
+    unwrap!(spawner.spawn(dw6_rx()));
 
-    unwrap!(spawner.spawn(lfo_mod()));
-    
-    unwrap!(spawner.spawn(dw6_dump()));
+    // unwrap!(spawner.spawn(lfo_mod()));
+
+    // unwrap!(spawner.spawn(dw6_dump_request()));
 
     info!("DW6000 Controller Active");
 }

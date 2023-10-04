@@ -39,7 +39,7 @@ static DW6_SYSEX_DUMP: Shared<Vec<u8>> = Shared::uninit("DW6_SYSEX_DUMP");
 async fn bstep_rx() -> ! {
     let mut bstep_in = MIDI_DIN_1_IN.lock().await;
     loop {
-        if let Ok(Some(packet)) = bstep_in.receive().await {
+        if let Ok(packet) = bstep_in.receive().await {
             packets_from_beatstep(PacketList::single(packet)).await;
         }
     }
@@ -51,7 +51,7 @@ async fn dw6_rx() -> ! {
     let mut dw6_in = MIDI_DIN_2_IN.lock().await;
     loop {
         match dw6_in.receive().await {
-            Ok(Some(packet)) => packets_from_dw_6000(PacketList::single(packet)).await,
+            Ok(packet) => packets_from_dw_6000(PacketList::single(packet)).await,
             Err(midi_err) => error!("dw6 rx error {}", midi_err),
             _ => warn!("dw6 rx nothing"),
         }

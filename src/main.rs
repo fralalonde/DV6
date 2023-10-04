@@ -25,7 +25,7 @@ use embassy_stm32::peripherals::PA1;
 #[cfg(feature = "rng")]
 use embassy_stm32::{
     rng::Rng,
-    peripherals::{RNG}
+    peripherals::{RNG},
 };
 use embassy_stm32::dma::NoDma;
 
@@ -102,10 +102,9 @@ use embedded_io_async::{Read, Write};
 #[embassy_executor::task]
 async fn ping_uart4(uart4: &'static mut UartTx<'_, peripherals::UART4, peripherals::DMA1_CH0>) -> ! {
     loop {
-        unwrap!(uart4.write_all("V".as_bytes()).await);
+        unwrap!(uart4.write_all("VVVV".as_bytes()).await);
         Timer::after(Duration::from_millis(250)).await;
     }
-
 }
 
 #[embassy_executor::task]

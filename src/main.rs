@@ -75,6 +75,10 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
+// static SHARED: Shared<BufferedUartTx<'_, embassy_stm32::peripherals::UART4>> = Shared::uninit("SHORD");
+// SHARED.lock().await.set(uart4_tx);
+// unwrap!(uart4.get_mut().unwrap().write_all("V".as_bytes()).await);
+
 static MIDI_DIN_2_OUT: Shared<BufferedUartTx<peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
 // static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
 static MIDI_DIN_2_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_IN");
@@ -108,11 +112,11 @@ use embedded_midi::Velocity;
 use midi::MidiChannel::CH1;
 
 #[embassy_executor::task]
-async fn ping_uart4() -> ! {
-    let mut uart4 = MIDI_DIN_2_OUT.lock().await;
+async fn ping_uart5() -> ! {
+    let mut uart5 = MIDI_DIN_2_OUT.lock().await;
     loop {
-        let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
-        if let Err(err) = uart4.write(&[65]).await {
+        // let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
+        if let Err(err) = uart5.get_mut().unwrap().write_all(&[65]).await {
             error!("uh {}", err)
         }
         Timer::after(Duration::from_millis(250)).await;
@@ -120,13 +124,13 @@ async fn ping_uart4() -> ! {
 }
 
 // #[embassy_executor::task]
-// async fn echo_uart5() -> ! {
-//     let mut uart5_rx = MIDI_DIN_1_IN.lock().await;
-//     let mut uart5_tx = MIDI_DIN_1_OUT.lock().await;
+// async fn echo_uart4() -> ! {
+//     let mut uart4_rx = MIDI_DIN_1_IN.lock().await;
+//     let mut uart4_tx = MIDI_DIN_1_OUT.lock().await;
 //     loop {
-//         if let Ok(packet) = uart5_rx.receive().await {
+//         if let Ok(packet) = uart4_rx.receive().await {
 //             info!("uh {}", packet);
-//             uart5_tx.transmit(PacketList::single(packet)).await.unwrap();
+//             uart4_tx.transmit(PacketList::single(packet)).await.unwrap();
 //         } else {
 //             error!("crap")
 //         }
@@ -134,10 +138,10 @@ async fn ping_uart4() -> ! {
 // }
 //
 // #[embassy_executor::task]
-// async fn print_uart4() -> ! {
-//     let mut uart4 = MIDI_DIN_2_IN.lock().await;
+// async fn print_uart5() -> ! {
+//     let mut uart5 = MIDI_DIN_2_IN.lock().await;
 //     loop {
-//         if let Ok(packet) = uart4.receive().await {
+//         if let Ok(packet) = uart5.receive().await {
 //             info!("{}", packet);
 //         }
 //     }
@@ -230,9 +234,9 @@ async fn main(spawner: Spawner) {
     let led = make_static!(led);
     unwrap!(spawner.spawn(blink(led)));
 
-    unwrap!(spawner.spawn(ping_uart4()));
-    // unwrap!(spawner.spawn(echo_uart5()));
-    // unwrap!(spawner.spawn(print_uart4()));
+    unwrap!(spawner.spawn(ping_uart5()));
+    // unwrap!(spawner.spawn(echo_uart4()));
+    // unwrap!(spawner.spawn(print_uart5()));
 
     // apps::dw6_control::start_app(spawner);
 }

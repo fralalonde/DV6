@@ -7,12 +7,13 @@ version = "0.1.0"
 
 [dependencies]
 heapless = "0.7"
-num_enum = { version = "0.6", default-features = false }
+num_enum = { version = "0.7", default-features = false }
 num = { version = "0.4", default-features = false }
 nb = "1.0"
 hash32 = "0.2"
 
 defmt = { version = "0.3", optional = true }
+embassy-stm32 = { version = "0.1", git = "https://github.com/embassy-rs/embassy", optional = true }
 
 [dev-dependencies]
 defmt = { version = "0.3" }
@@ -20,3 +21,4 @@ defmt = { version = "0.3" }
 [features]
 default = []
 defmt = ["dep:defmt", "heapless/defmt"]
+embassy = ["embassy-stm32"]

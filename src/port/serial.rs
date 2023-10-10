@@ -2,7 +2,6 @@
 
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{BasicInstance, BufferedUartRx, BufferedUartTx, UartRx, UartTx};
-use embedded_hal::prelude::_embedded_hal_blocking_serial_Write;
 use embedded_io_async::{Write, Read};
 use futures::TryFutureExt;
 
@@ -50,7 +49,7 @@ impl<'a, UART: BasicInstance> BufferedSerialMidiOut<'a, UART> where UART: {
         for packet in packets.iter() {
             let payload = packet.payload();
             let payload = self.packer.pack(payload);
-            self.uart.write_all(payload).map_err(|_| MidiError::WriteError).await?;
+            self.uart.write_all(payload).await?;
         }
         Ok(())
     }
@@ -60,7 +59,6 @@ pub struct SerialMidiOut<'a, UART: BasicInstance, TxDma = NoDma> {
     pub uart: UartTx<'a, UART, TxDma>,
     packer: MidiPacker,
 }
-
 
 impl<'a, UART: BasicInstance, TxDma: embassy_stm32::usart::TxDma<UART>> SerialMidiOut<'a, UART, TxDma> where UART: {
     pub fn new(uart: UartTx<'a, UART, TxDma>) -> Self {
@@ -73,7 +71,7 @@ impl<'a, UART: BasicInstance, TxDma: embassy_stm32::usart::TxDma<UART>> SerialMi
         for packet in packets.iter() {
             let payload = packet.payload();
             let payload = self.packer.pack(payload);
-            self.uart.write(payload).map_err(|_| MidiError::WriteError).await?;
+            self.uart.write(payload).await?;
         }
         Ok(())
     }
@@ -96,7 +94,7 @@ impl<'a, UART: BasicInstance, RxDma: embassy_stm32::usart::RxDma<UART>> SerialMi
         let mut z: [u8; 1] = [0];
         loop {
             // no size check - successful async read() guarantees buffer was filled :shrug:
-            self.uart.read(&mut z).await.map_err(|_| MidiError::ReadError)?;
+            self.uart.read(&mut z).await?;
             let packet = self.parser.advance(z[0])?;
             if let Some(packet) = packet {
                 return Ok(packet.with_cable_num(1));
@@ -122,15 +120,12 @@ impl<'a, UART: BasicInstance> BufferedSerialMidiIn<'a, UART> {
         let mut z: [u8; 1] = [0];
         loop {
             // no size check - successful async read() guarantees buffer was filled :shrug:
-            self.uart.read(&mut z).await.map_err(|_| MidiError::ReadError)?;
-            let packet = self.parser.advance(z[0])?;
-            if let Some(packet) = packet {
-                return Ok(packet.with_cable_num(1));
+            if self.uart.read(&mut z).await? == 1 {
+                let packet = self.parser.advance(z[0])?;
+                if let Some(packet) = packet {
+                    return Ok(packet.with_cable_num(1));
+                }
             }
         }
     }
 }
-
-
-
-

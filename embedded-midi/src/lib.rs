@@ -31,16 +31,36 @@ mod message;
 mod packet;
 mod parser;
 
+use num_enum::{TryFromPrimitive, IntoPrimitive};
+
+/// MIDI channel, stored as 0-15
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// MIDI channel, stored as 0-15
-pub struct MidiChannel(pub u8);
+#[repr(u8)]
+#[derive(IntoPrimitive, TryFromPrimitive)]
+pub enum MidiChannel {
+    CH1,
+    CH2,
+    CH3,
+    CH4,
+    CH5,
+    CH6,
+    CH7,
+    CH8,
+    CH9,
+    CH10,
+    CH11,
+    CH12,
+    CH13,
+    CH14,
+    CH15,
+    CH16,
+}
 
-/// "Natural" channel builder, takes integers 1-16 as input, wraparound
-/// FIXME rollover fails in checked builds!
+/// "Natural" channel builder, takes integers 1-16 as input
+/// panics if channel is outside of range
 pub fn channel(ch: impl Into<u8>) -> MidiChannel {
-    let ch = (ch.into() - 1).min(15);
-    MidiChannel(ch)
+    MidiChannel::try_from(ch.into() - 1).expect("Invalid MIDI channel")
 }
 
 pub type Velocity = U7;
@@ -157,6 +177,9 @@ pub enum MidiError {
     InvalidPort,
     DroppedPacket,
     UnknownInterface(MidiInterface),
+
+    #[cfg(feature = "embassy-stm32")]
+    Stm32UsartError,
 }
 
 #[cfg(feature = "usb")]
@@ -190,6 +213,13 @@ impl From<(MidiBinding, PacketList)> for MidiError {
 impl From<(MidiInterface, PacketList)> for MidiError {
     fn from(_: (MidiInterface, PacketList)) -> Self {
         MidiError::DroppedPacket
+    }
+}
+
+#[cfg(feature = "embassy-stm32")]
+impl From<embassy_stm32::usart::Error> for MidiError {
+    fn from(err: (embassy_stm32::usart::Error)) -> Self {
+        MidiError::Stm32UsartError
     }
 }
 

@@ -71,13 +71,13 @@ pub enum Status {
 
 pub fn status_byte(msg: &MidiMessage) -> Option<u8> {
     match msg {
-        MidiMessage::NoteOff(ch, ..) => Some(Status::NoteOff as u8 + ch.0),
-        MidiMessage::NoteOn(ch, ..) => Some(Status::NoteOn as u8 + ch.0),
-        MidiMessage::NotePressure(ch, ..) => Some(Status::NotePressure as u8 + ch.0),
-        MidiMessage::ChannelPressure(ch, ..) => Some(Status::ChannelPressure as u8 + ch.0),
-        MidiMessage::ProgramChange(ch, ..) => Some(Status::ProgramChange as u8 + ch.0),
-        MidiMessage::ControlChange(ch, ..) => Some(Status::ControlChange as u8 + ch.0),
-        MidiMessage::PitchBend(ch, ..) => Some(Status::PitchBend as u8 + ch.0),
+        MidiMessage::NoteOff(ch, ..) => Some(Status::NoteOff as u8 + *ch as u8),
+        MidiMessage::NoteOn(ch, ..) => Some(Status::NoteOn as u8 + *ch as u8),
+        MidiMessage::NotePressure(ch, ..) => Some(Status::NotePressure as u8 + *ch as u8),
+        MidiMessage::ChannelPressure(ch, ..) => Some(Status::ChannelPressure as u8 + *ch as u8),
+        MidiMessage::ProgramChange(ch, ..) => Some(Status::ProgramChange as u8 + *ch as u8),
+        MidiMessage::ControlChange(ch, ..) => Some(Status::ControlChange as u8 + *ch as u8),
+        MidiMessage::PitchBend(ch, ..) => Some(Status::PitchBend as u8 + *ch as u8),
 
         MidiMessage::TimeCodeQuarterFrame(_) => Some(Status::TimeCodeQuarterFrame as u8),
         MidiMessage::SongPositionPointer(_, _) => Some(Status::SongPositionPointer as u8),

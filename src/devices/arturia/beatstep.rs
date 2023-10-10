@@ -64,7 +64,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
             let ccode = pad.control_code();
             vec![
                 parameter_set(MODE, ccode, PadMode::CC as u8),
-                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x02, ccode, channel as u8),
                 parameter_set(0x03, ccode, cc.0),
                 parameter_set(0x04, ccode, on.0),
                 parameter_set(0x05, ccode, off.0),
@@ -75,7 +75,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
             let ccode = pad.control_code();
             vec![
                 parameter_set(MODE, ccode, PadMode::CCSilent as u8),
-                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x02, ccode, channel as u8),
                 parameter_set(0x03, ccode, cc.0),
                 parameter_set(0x04, ccode, on.0),
                 parameter_set(0x05, ccode, off.0),
@@ -86,7 +86,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
             let ccode = pad.control_code();
             vec![
                 parameter_set(MODE, ccode, PadMode::Note as u8),
-                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x02, ccode, channel as u8),
                 parameter_set(0x03, ccode, note as u8),
                 parameter_set(0x06, ccode, switch as u8),
             ]
@@ -95,7 +95,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
             let ccode = pad.control_code();
             vec![
                 parameter_set(MODE, ccode, PadMode::ProgramChange as u8),
-                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x02, ccode, channel as u8),
                 parameter_set(0x03, ccode, program.0),
                 parameter_set(0x04, ccode, lsb.0),
                 parameter_set(0x05, ccode, msb.0),
@@ -111,7 +111,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
             let ccode = encoder.control_code();
             vec![
                 parameter_set(MODE, ccode, KnobMode::CC as u8),
-                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x02, ccode, channel as u8),
                 parameter_set(0x03, ccode, control.0),
                 parameter_set(0x04, ccode, minimum.0),
                 parameter_set(0x05, ccode, maximum.0),
@@ -122,7 +122,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
             let ccode = knob.control_code();
             vec![
                 parameter_set(MODE, ccode, KnobMode::NRPN as u8),
-                parameter_set(0x02, ccode, channel.0),
+                parameter_set(0x02, ccode, channel as u8),
                 parameter_set(0x03, ccode, granularity as u8),
                 parameter_set(0x04, ccode, banklsb.0),
                 parameter_set(0x05, ccode, bankmsb.0),
@@ -131,9 +131,9 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
         }
 
         Param::GlobalMidiChannel(channel) =>
-            vec![parameter_set(MIDI_CHANNEL, 0x0B, channel.0)],
+            vec![parameter_set(MIDI_CHANNEL, 0x0B, channel as u8)],
         Param::CVGateChannel(channel) =>
-            vec![parameter_set(MIDI_CHANNEL, 0x0C, channel.0)],
+            vec![parameter_set(MIDI_CHANNEL, 0x0C, channel as u8)],
         Param::KnobAcceleration(acceleration) =>
             vec![parameter_set(CURVE, 0x04, acceleration as u8)],
         Param::PadVelocityCurve(vel_curve) =>
@@ -144,7 +144,7 @@ pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
         Param::StepEnabled(stepnum, bool) =>
             vec![parameter_set(STEP_ENABLED, stepnum.0, if bool { 1 } else { 0 })],
         Param::SeqChannel(channel) =>
-            vec![parameter_set(SEQ, SeqGlobal::Channel as u8, channel.0)],
+            vec![parameter_set(SEQ, SeqGlobal::Channel as u8, channel as u8)],
         Param::SeqTranspose(root_note) =>
             vec![parameter_set(SEQ, SeqGlobal::Transpose as u8, root_note.0 as u8)],
         Param::SeqScale(scale) =>

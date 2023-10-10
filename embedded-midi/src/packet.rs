@@ -46,10 +46,10 @@ impl Packet {
 
     pub fn channel(&self) -> Option<MidiChannel> {
         let byte = self.bytes[1];
-        if byte < NoteOff as u8 {
+        if byte < 0x80 {
             None
         } else {
-            Some(channel(byte))
+            Some(channel((byte - 0x80) >> 4))
         }
     }
 

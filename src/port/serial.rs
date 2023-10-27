@@ -8,11 +8,11 @@ use futures::TryFutureExt;
 use midi::{Packet, MidiError, PacketList};
 
 #[derive(Default)]
-pub struct MidiPacker {
+pub struct StatusPacker {
     last_status: Option<u8>,
 }
 
-impl MidiPacker {
+impl StatusPacker {
     pub fn pack<'a>(&mut self, payload: &'a [u8]) -> &'a [u8] {
         if midi::is_channel_status(payload[0]) {
             // Apply MIDI "running status"
@@ -35,14 +35,14 @@ impl MidiPacker {
 
 pub struct BufferedSerialMidiOut<'a, UART: BasicInstance> {
     pub uart: BufferedUartTx<'a, UART>,
-    packer: MidiPacker,
+    packer: StatusPacker,
 }
 
 impl<'a, UART: BasicInstance> BufferedSerialMidiOut<'a, UART> where UART: {
     pub fn new(uart: BufferedUartTx<'a, UART>) -> Self {
         Self {
             uart,
-            packer: MidiPacker::default(),
+            packer: StatusPacker::default(),
         }
     }
     pub(crate) async fn transmit(&mut self, packets: PacketList) -> Result<(), MidiError> {
@@ -57,14 +57,14 @@ impl<'a, UART: BasicInstance> BufferedSerialMidiOut<'a, UART> where UART: {
 
 pub struct SerialMidiOut<'a, UART: BasicInstance, TxDma = NoDma> {
     pub uart: UartTx<'a, UART, TxDma>,
-    packer: MidiPacker,
+    packer: StatusPacker,
 }
 
 impl<'a, UART: BasicInstance, TxDma: embassy_stm32::usart::TxDma<UART>> SerialMidiOut<'a, UART, TxDma> where UART: {
     pub fn new(uart: UartTx<'a, UART, TxDma>) -> Self {
         Self {
             uart,
-            packer: MidiPacker::default(),
+            packer: StatusPacker::default(),
         }
     }
     pub(crate) async fn transmit(&mut self, packets: PacketList) -> Result<(), MidiError> {

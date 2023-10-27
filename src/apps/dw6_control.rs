@@ -105,7 +105,7 @@ pub fn start_app(spawner: Spawner) {
 
     DW6_SYSEX_DUMP.init_static(Vec::with_capacity(32));
 
-    // unwrap!(spawner.spawn(bstep_rx()));
+    spawner.spawn(bstep_rx())?;
 
     unwrap!(spawner.spawn(dw6_rx()));
 

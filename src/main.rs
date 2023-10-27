@@ -14,7 +14,6 @@ extern crate bitfield;
 #[macro_use]
 extern crate defmt;
 
-use cortex_m::prelude::_embedded_hal_blocking_spi_Write;
 use defmt::*;
 use embassy_executor::Spawner;
 
@@ -43,9 +42,6 @@ use crate::port::midi_usb::MidiClass;
 use embassy_stm32::usb_otg;
 
 use embassy_time::{Duration, Timer};
-use embedded_io_async::Write;
-use embedded_io_async::BufRead;
-use embedded_io_async::Read;
 use crate::port::serial::{BufferedSerialMidiIn, BufferedSerialMidiOut, SerialMidiIn, SerialMidiOut};
 use crate::resource::Shared;
 
@@ -75,19 +71,18 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-// static SHARED: Shared<BufferedUartTx<'_, embassy_stm32::peripherals::UART4>> = Shared::uninit("SHORD");
+static SHARED: Shared<BufferedUartTx<'_, embassy_stm32::peripherals::UART5>> = Shared::uninit("UART5");
 // SHARED.lock().await.set(uart4_tx);
 // unwrap!(uart4.get_mut().unwrap().write_all("V".as_bytes()).await);
 
-static MIDI_DIN_2_OUT: Shared<BufferedUartTx<peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
-// static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
+static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
 static MIDI_DIN_2_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_IN");
 static MIDI_DIN_1_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_1_OUT");
 static MIDI_DIN_1_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_1_IN");
 static MIDI_USB_1_OUT: Shared<midi_usb::Sender<'static, Driver<'static, peripherals::USB_OTG_FS>>> = Shared::uninit("MIDI_USB_1_OUT");
 static MIDI_USB_1_IN: Shared<midi_usb::Receiver<'static, Driver<'static, peripherals::USB_OTG_FS>>> = Shared::uninit("MIDI_USB_1_IN");
 #[cfg(feature = "rng")]
-static CHAOS: Shared<rng::Rng<'static, peripherals::RNG>> = Shared::uninit("CHAOS");
+static CHAOS: Shared<rng::Rng<'static, RNG>> = Shared::uninit("CHAOS");
 
 type UsbDriver = Driver<'static, peripherals::USB_OTG_FS>;
 
@@ -106,46 +101,52 @@ async fn blink(led: &'static mut Output<'static, PA1>) -> ! {
     }
 }
 
-use midi::{channel, MidiMessage, Packet, PacketList};
-use midi::Note::C1;
-use embedded_midi::Velocity;
+use embedded_io_async::{Read, Write};
+use midi::{MidiMessage, Packet, PacketList, Velocity};
 use midi::MidiChannel::CH1;
+use midi::Note::C1;
 
 #[embassy_executor::task]
 async fn ping_uart5() -> ! {
-    let mut uart5 = MIDI_DIN_2_OUT.lock().await;
+    let mut midi2_out = MIDI_DIN_2_OUT.lock().await;
     loop {
-        // let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
-        if let Err(err) = uart5.get_mut().unwrap().write_all(&[65]).await {
+        let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
+        if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
             error!("uh {}", err)
         }
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after(Duration::from_millis(500)).await;
+
+        let p = Packet::from(MidiMessage::NoteOff(CH1, C1, Velocity::MAX));
+        if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
+            error!("uh {}", err)
+        }
+        Timer::after(Duration::from_millis(500)).await;
     }
 }
 
-// #[embassy_executor::task]
-// async fn echo_uart4() -> ! {
-//     let mut uart4_rx = MIDI_DIN_1_IN.lock().await;
-//     let mut uart4_tx = MIDI_DIN_1_OUT.lock().await;
-//     loop {
-//         if let Ok(packet) = uart4_rx.receive().await {
-//             info!("uh {}", packet);
-//             uart4_tx.transmit(PacketList::single(packet)).await.unwrap();
-//         } else {
-//             error!("crap")
-//         }
-//     }
-// }
-//
-// #[embassy_executor::task]
-// async fn print_uart5() -> ! {
-//     let mut uart5 = MIDI_DIN_2_IN.lock().await;
-//     loop {
-//         if let Ok(packet) = uart5.receive().await {
-//             info!("{}", packet);
-//         }
-//     }
-// }
+#[embassy_executor::task]
+async fn echo_uart4() -> ! {
+    let mut midi1_out = MIDI_DIN_1_OUT.lock().await;
+    let mut midi1_in = MIDI_DIN_1_IN.lock().await;
+    loop {
+        if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
+            if let Err(err) =  midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
+                error!("oups {}", err)
+            }
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn print_uart5() -> ! {
+    let mut midi2_in = MIDI_DIN_2_IN.lock().await;
+    loop {
+        if let Ok(packet) = midi2_in.get_mut().unwrap().receive().await {
+            let message = MidiMessage::try_from(packet).unwrap();
+            info!("{}", message);
+        }
+    }
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -212,31 +213,33 @@ async fn main(spawner: Spawner) {
     }
 
     let mut config = usart::Config::default();
-    // config.baudrate = 31250;
     config.baudrate = 115200;
-    let (rx_buf, tx_buf) = (make_static!([0u8; 64]), make_static!([0u8; 64]));
-    // let uart = BufferedUart::new(uart, Irqs, tx_pin, rx_pin, tx_buf, rx_buf, Config::default());
-    let mut uart5 = unwrap!(BufferedUart::new(p.UART5, Irqs, p.PB5, p.PB6, tx_buf, rx_buf, config));
+    // let tx_buf = [0u8; 32];
+    let tx_buf = make_static!([0u8; 32]);
+    let rx_buf = make_static!([0u8; 32]);
+    // let mut uart1 = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.DMA1_CH0, NoDma, config);
+    // let mut uart1 = Uart::new(p.UART7, p.PA8, p.PA15, Irqs, NoDma, NoDma, config);
+    let uart5 = BufferedUart::new(p.UART5, Irqs, p.PB5, p.PB6, tx_buf, rx_buf, config).unwrap();
     let (uart5_tx, uart5_rx) = uart5.split();
-    MIDI_DIN_2_OUT.init_static(uart5_tx);
-    // MIDI_DIN_2_OUT.init_static(BufferedSerialMidiOut::new(uart5_tx));
-    MIDI_DIN_2_IN.init_static(BufferedSerialMidiIn::new(uart5_rx));
+    let _ = MIDI_DIN_2_OUT.lock().await.set(BufferedSerialMidiOut::new(uart5_tx));
+    let _ = MIDI_DIN_2_IN.lock().await.set(BufferedSerialMidiIn::new(uart5_rx));
 
     let mut config = usart::Config::default();
     config.baudrate = 115200;
-    let (rx_buf, tx_buf) = (make_static!([0u8; 64]), make_static!([0u8; 64]));
-    let mut uart4 = unwrap!(BufferedUart::new(p.UART4, Irqs, p.PD0, p.PD1, tx_buf, rx_buf, config));
+    let tx_buf = make_static!([0u8; 32]);
+    let rx_buf = make_static!([0u8; 32]);
+    let uart4 = BufferedUart::new(p.UART4, Irqs, p.PD0, p.PD1, tx_buf, rx_buf, config).unwrap();
     let (uart4_tx, uart4_rx) = uart4.split();
-    MIDI_DIN_1_OUT.init_static(BufferedSerialMidiOut::new(uart4_tx));
-    MIDI_DIN_1_IN.init_static(BufferedSerialMidiIn::new(uart4_rx));
+    let _ = MIDI_DIN_1_OUT.lock().await.set(BufferedSerialMidiOut::new(uart4_tx));
+    let _ = MIDI_DIN_1_IN.lock().await.set(BufferedSerialMidiIn::new(uart4_rx));
 
     let led = Output::new(p.PA1, Level::High, Speed::Low);
     let led = make_static!(led);
     unwrap!(spawner.spawn(blink(led)));
 
     unwrap!(spawner.spawn(ping_uart5()));
-    // unwrap!(spawner.spawn(echo_uart4()));
-    // unwrap!(spawner.spawn(print_uart5()));
+    unwrap!(spawner.spawn(echo_uart4()));
+    unwrap!(spawner.spawn(print_uart5()));
 
     // apps::dw6_control::start_app(spawner);
 }

@@ -123,3 +123,4 @@ impl TryFrom<u8> for Status {
         Ok(unsafe { Status::unchecked_transmute_from(byte) })
     }
 }
+

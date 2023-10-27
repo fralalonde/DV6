@@ -16,12 +16,6 @@ impl<T: Sized> Shared<T> {
             value: Mutex::new(OnceCell::new()),
         }
     }
-    pub async fn init_static(&self, value: T)  {
-        match self.value.lock().await.set(value) {
-            Ok(_) => {}
-            Err(_) => panic!("Could not init {}", self.name)
-        }
-    }
 
     pub async fn lock(&self) -> MutexGuard<'_, ThreadModeRawMutex, OnceCell<T>> {
         self.value.lock().await

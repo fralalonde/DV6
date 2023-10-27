@@ -49,7 +49,7 @@ impl Packet {
         if byte < 0x80 {
             None
         } else {
-            Some(channel((byte - 0x80) >> 4))
+            Some(MidiChannel::try_from((byte - 0x80) >> 4).unwrap())
         }
     }
 

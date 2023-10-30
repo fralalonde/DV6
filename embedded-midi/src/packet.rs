@@ -3,8 +3,8 @@
 
 use crate::message::MidiMessage;
 use core::convert::{TryFrom};
-use crate::{MidiError, MidiChannel, channel};
-use crate::status::{Status, status_byte, SYSEX_START, SYSEX_END};
+use crate::{MidiError, MidiChannel, is_channel_status};
+use crate::status::{Status, SYSEX_START, SYSEX_END};
 use CodeIndexNumber::*;
 
 use num_enum::UnsafeFromPrimitive;
@@ -14,7 +14,7 @@ pub type CableNumber = u8;
 #[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Packet {
-    bytes: [u8; 4]
+    bytes: [u8; 4],
 }
 
 impl Packet {
@@ -35,21 +35,21 @@ impl Packet {
         CodeIndexNumber::from(self.bytes[0] & 0x0F)
     }
 
-    pub fn status(&self) -> Option<Status> {
+    pub fn status(&self) -> Result<Option<Status>, MidiError> {
         let payload = self.payload();
         if payload.is_empty() {
-            None
+            Ok(None)
         } else {
-            Status::try_from(self.payload()[0]).ok()
+            Ok(Some(Status::try_from(self.payload()[0])?))
         }
     }
 
     pub fn channel(&self) -> Option<MidiChannel> {
         let byte = self.bytes[1];
-        if byte < 0x80 {
-            None
+        if is_channel_status(byte) {
+            unsafe { Some(MidiChannel::unchecked_transmute_from(byte & 0xF)) }
         } else {
-            Some(MidiChannel::try_from((byte - 0x80) >> 4).unwrap())
+            None
         }
     }
 
@@ -89,7 +89,7 @@ impl From<MidiMessage> for Packet {
     fn from(message: MidiMessage) -> Self {
         let mut packet = [0; 4];
         packet[0] = CodeIndexNumber::from(message) as u8;
-        if let Some(byte) = status_byte(&message) {
+        if let Some(byte) = message.status_byte() {
             packet[1] = byte;
         }
         match message {

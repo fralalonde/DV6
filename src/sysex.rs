@@ -1,5 +1,4 @@
 use midi::{Packet, MidiMessage, PacketList};
-use alloc::vec::Vec;
 
 use midi::MidiMessage::{SysexEnd2, SysexEnd1, SysexEnd, SysexBegin, SysexCont, SysexEmpty, SysexSingleByte};
 
@@ -7,8 +6,7 @@ use core::convert::TryFrom;
 use heapless::spsc::Queue;
 use alloc::collections::BTreeMap;
 use core::iter::FromIterator;
-use crate::sysex::SysexCapture::{Pending, Captured};
-use crate::sysex::SysexError::{BufferOverflow, SpuriousContinuation, SpuriousEnd};
+use alloc::vec::Vec;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum Tag {
@@ -37,97 +35,6 @@ impl Tag {
         }
     }
 }
-
-pub enum SysexCapture {
-    Captured,
-    Pending,
-}
-
-pub enum SysexError {
-    BufferOverflow,
-    SpuriousContinuation,
-    SpuriousEnd,
-}
-
-// TODO heapless: pub fn capture_sysex<const SIZE: usize>(sysex_buffer: &mut heapless::Vec<u8, SIZE>, message: MidiMessage) -> Result<bool, u8> {
-pub fn capture_sysex(buffer: &mut Vec<u8>, message: MidiMessage) -> Result<SysexCapture, SysexError> {
-    match message {
-        SysexBegin(byte0, byte1) => {
-            buffer.clear();
-            if buffer.len() + 2 > buffer.capacity()  {
-                return Err(BufferOverflow)
-            }
-            buffer.push(byte0);
-            buffer.push(byte1);
-            Ok(Pending)
-        }
-        SysexSingleByte(byte0) => {
-            buffer.clear();
-            if buffer.len() + 1 > buffer.capacity()  {
-                return Err(BufferOverflow)
-            }
-            buffer.push(byte0);
-            Ok(Captured)
-        }
-        SysexEmpty => {
-            buffer.clear();
-            Ok(Captured)
-        }
-        SysexCont(byte0, byte1, byte2) => {
-            if buffer.is_empty() {
-                // there should be _some_ data buffered from previous messages
-                return Err(SpuriousContinuation);
-            }
-            if buffer.len() + 3 > buffer.capacity()  {
-                // prevent mangled message
-                buffer.clear();
-                return Err(BufferOverflow)
-            }
-            buffer.push(byte0);
-            buffer.push(byte1);
-            buffer.push(byte2);
-            Ok(Captured)
-        }
-        SysexEnd => {
-            if buffer.is_empty() {
-                // there should be _some_ data buffered from previous messages
-                return Err(SpuriousEnd);
-            }
-            Ok(Captured)
-        }
-        SysexEnd1(byte0) => {
-            if buffer.is_empty() {
-                return Err(SpuriousEnd);
-            }
-            if buffer.len() + 1 > buffer.capacity()  {
-                // prevent mangled message
-                buffer.clear();
-                return Err(BufferOverflow)
-            }
-            buffer.push(byte0);
-            Ok(Captured)
-        }
-        SysexEnd2(byte0, byte1) => {
-            if buffer.is_empty() {
-                return Err(SpuriousEnd);
-            }
-            if buffer.len() + 2 > buffer.capacity()  {
-                // prevent mangled message
-                buffer.clear();
-                return Err(BufferOverflow)
-            }
-            buffer.push(byte0);
-            buffer.push(byte1);
-            Ok(Captured)
-        }
-        _ => {
-            // message is not part a sysex sequence
-            buffer.clear();
-            Ok(Pending)
-        }
-    }
-}
-
 
 /// Used to send sysex
 /// Accepts same Token as matcher for convenience, but only Match and Val value are sent

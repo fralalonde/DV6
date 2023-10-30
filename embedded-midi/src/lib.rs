@@ -18,8 +18,8 @@ pub use u4::U4;
 pub use u6::U6;
 pub use u7::U7;
 pub use parser::{PacketParser};
-pub use status::is_channel_status;
-pub use status::is_non_status;
+pub use status::{is_non_status, is_channel_status, StatusPacker};
+pub use sysex::{capture_sysex, SysexCapture, SysexError};
 
 mod u4;
 mod u6;
@@ -30,14 +30,15 @@ mod note;
 mod message;
 mod packet;
 mod parser;
+mod sysex;
 
-use num_enum::{TryFromPrimitive, IntoPrimitive};
+use num_enum::{TryFromPrimitive, };
 
 /// MIDI channel, stored as 0-15
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
-#[derive(IntoPrimitive, TryFromPrimitive)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(num_enum::TryFromPrimitive, num_enum::UnsafeFromPrimitive, num_enum::IntoPrimitive)]
 pub enum MidiChannel {
     CH1,
     CH2,
@@ -59,8 +60,15 @@ pub enum MidiChannel {
 
 /// "Natural" channel builder, takes integers 1-16 as input
 /// panics if channel is outside of range
-pub fn channel(ch: impl Into<u8>) -> MidiChannel {
-    MidiChannel::try_from(ch.into() - 1).expect("Invalid MIDI channel")
+pub fn channel(ch: impl Into<u8>) -> Result<MidiChannel, MidiError> {
+    let ch = ch.into();
+    MidiChannel::try_from_primitive(ch - 1).map_err(|_err| MidiError::InvalidChannel)
+}
+
+impl MidiChannel {
+    pub fn as_u8(&self) -> u8 {
+        (*self).into()
+    }
 }
 
 pub type Velocity = U7;
@@ -68,33 +76,6 @@ pub type Control = U7;
 pub type Pressure = U7;
 pub type Program = U7;
 pub type Bend = U14;
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MidiInterface {
-    USB(u8),
-    UART(u8),
-}
-
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MidiBinding {
-    Src(MidiInterface),
-    Dst(MidiInterface),
-}
-
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct MidiEndpoint {
-    pub interface: MidiInterface,
-    pub channel: MidiChannel,
-}
-
-impl From<(MidiInterface, MidiChannel)> for MidiEndpoint {
-    fn from(pa: (MidiInterface, MidiChannel)) -> Self {
-        MidiEndpoint { interface: pa.0, channel: pa.1 }
-    }
-}
 
 const MAX_PACKETS: usize = 16;
 
@@ -127,7 +108,6 @@ impl FromIterator<Packet> for PacketList {
     }
 }
 
-
 impl PacketList {
     pub fn single(packet: Packet) -> Self {
         let mut list = Vec::new();
@@ -136,23 +116,8 @@ impl PacketList {
     }
 }
 
-// pub trait Receive {
-//     fn receive(&mut self) -> Result<Option<Packet>, MidiError>;
-// }
-
-// /// Set callback on reception of MIDI packets
-// pub trait ReceiveListener {
-//     fn on_receive(&mut self, listener: Option<&'static mut (dyn FnMut(PacketList) + Send + Sync)>);
-// }
-
-// /// Send a list of packets
-// pub trait Transmit {
-//     fn transmit(&mut self, packet: PacketList) -> Result<(), MidiError>;
-// }
-
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u8)]
 pub enum MidiError {
     SysexInterrupted,
     InvalidStatus(u8),
@@ -176,7 +141,7 @@ pub enum MidiError {
     TooManyPorts,
     InvalidPort,
     DroppedPacket,
-    UnknownInterface(MidiInterface),
+    // UnknownInterface(MidiInterface),
 
     #[cfg(feature = "embassy-stm32")]
     Stm32UsartError,
@@ -202,23 +167,9 @@ impl From<TryFromSliceError> for MidiError {
     }
 }
 
-/// RTIC spawn error
-impl From<(MidiBinding, PacketList)> for MidiError {
-    fn from(_: (MidiBinding, PacketList)) -> Self {
-        MidiError::DroppedPacket
-    }
-}
-
-/// RTIC spawn error
-impl From<(MidiInterface, PacketList)> for MidiError {
-    fn from(_: (MidiInterface, PacketList)) -> Self {
-        MidiError::DroppedPacket
-    }
-}
-
 #[cfg(feature = "embassy-stm32")]
 impl From<embassy_stm32::usart::Error> for MidiError {
-    fn from(err: (embassy_stm32::usart::Error)) -> Self {
+    fn from(_err: embassy_stm32::usart::Error) -> Self {
         MidiError::Stm32UsartError
     }
 }

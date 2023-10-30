@@ -27,7 +27,6 @@ use embassy_stm32::{
     rng::Rng,
     peripherals::{RNG},
 };
-use embassy_stm32::dma::NoDma;
 
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::Driver;
@@ -42,11 +41,11 @@ use crate::port::midi_usb::MidiClass;
 use embassy_stm32::usb_otg;
 
 use embassy_time::{Duration, Timer};
-use crate::port::serial::{BufferedSerialMidiIn, BufferedSerialMidiOut, SerialMidiIn, SerialMidiOut};
+use crate::port::serial_buffered::{BufferedSerialMidiIn, BufferedSerialMidiOut};
 use crate::resource::Shared;
 
 mod resource;
-// mod apps;
+mod apps;
 mod devices;
 mod port;
 mod sysex;
@@ -71,16 +70,21 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-static SHARED: Shared<BufferedUartTx<'_, embassy_stm32::peripherals::UART5>> = Shared::uninit("UART5");
+// static SHARED: Shared<BufferedUartTx<'_, embassy_stm32::peripherals::UART5>> = Shared::uninit("UART5");
 // SHARED.lock().await.set(uart4_tx);
 // unwrap!(uart4.get_mut().unwrap().write_all("V".as_bytes()).await);
 
 static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
 static MIDI_DIN_2_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_IN");
+
 static MIDI_DIN_1_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_1_OUT");
 static MIDI_DIN_1_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_1_IN");
+
+#[cfg(feature = "usb")]
 static MIDI_USB_1_OUT: Shared<midi_usb::Sender<'static, Driver<'static, peripherals::USB_OTG_FS>>> = Shared::uninit("MIDI_USB_1_OUT");
+#[cfg(feature = "usb")]
 static MIDI_USB_1_IN: Shared<midi_usb::Receiver<'static, Driver<'static, peripherals::USB_OTG_FS>>> = Shared::uninit("MIDI_USB_1_IN");
+
 #[cfg(feature = "rng")]
 static CHAOS: Shared<rng::Rng<'static, RNG>> = Shared::uninit("CHAOS");
 
@@ -101,7 +105,6 @@ async fn blink(led: &'static mut Output<'static, PA1>) -> ! {
     }
 }
 
-use embedded_io_async::{Read, Write};
 use midi::{MidiMessage, Packet, PacketList, Velocity};
 use midi::MidiChannel::CH1;
 use midi::Note::C1;
@@ -130,7 +133,7 @@ async fn echo_uart4() -> ! {
     let mut midi1_in = MIDI_DIN_1_IN.lock().await;
     loop {
         if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
-            if let Err(err) =  midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
+            if let Err(err) = midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
                 error!("oups {}", err)
             }
         }
@@ -150,7 +153,7 @@ async fn print_uart5() -> ! {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let mut config = embassy_stm32::Config::default();
+    let config = embassy_stm32::Config::default();
     #[cfg(feature = "stm32f4")]
     {
         config.rcc.pll48 = true;
@@ -237,11 +240,11 @@ async fn main(spawner: Spawner) {
     let led = make_static!(led);
     unwrap!(spawner.spawn(blink(led)));
 
-    unwrap!(spawner.spawn(ping_uart5()));
-    unwrap!(spawner.spawn(echo_uart4()));
-    unwrap!(spawner.spawn(print_uart5()));
+    // unwrap!(spawner.spawn(ping_uart5()));
+    // unwrap!(spawner.spawn(echo_uart4()));
+    // unwrap!(spawner.spawn(print_uart5()));
 
-    // apps::dw6_control::start_app(spawner);
+    apps::dw6_control::start_app(spawner).await.unwrap()
 }
 
 

@@ -2,16 +2,15 @@
 //!
 use midi::{MidiMessage, Note, program_change, MidiError, U7, PacketList, channel};
 
-use crate::{devices, midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
-use alloc::vec::Vec;
+use crate::{midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
+
 use core::convert::TryFrom;
-use core::ops::DerefMut;
+
 use core::slice;
 
-use embassy_executor::{Spawner};
+use embassy_executor::{Spawner, SpawnError};
 use embassy_time::{Instant, Timer, Duration};
 
-use devices::korg::dw6000::*;
 use num_enum::TryFromPrimitive;
 use num::{Integer};
 use crate::apps::lfo::{Lfo, Waveform};
@@ -19,27 +18,23 @@ use crate::apps::lfo::{Lfo, Waveform};
 use crate::devices::korg::dw6000;
 
 use hashbrown::HashMap;
+use heapless::Vec;
 
-use sysex::{capture_sysex, SysexCapture};
+use midi::{capture_sysex, SysexCapture};
+use crate::devices::korg::dw6000::Dw6Param;
 use crate::resource::{Shared};
 
 const SHORT_PRESS_MS: Duration = Duration::from_millis(250);
 
-// /// MIDI Interface to DW6000
-// const IF_DW6000: MidiInterface = MidiInterface::UART(2);
-//
-// /// MIDI Interface to BeatStep through MIDI USB Coprocessor
-// const IF_BEATSTEP: MidiInterface = MidiInterface::UART(1);
-
 static DW6_CTRL: Shared<Dw6ControlInner> = Shared::uninit("DW6_CTRL");
 
-static DW6_SYSEX_DUMP: Shared<Vec<u8>> = Shared::uninit("DW6_SYSEX_DUMP");
+static DW6_SYSEX_DUMP: Shared<Vec<u8, 26>> = Shared::uninit("DW6_SYSEX_DUMP");
 
 #[embassy_executor::task]
 async fn bstep_rx() -> ! {
     let mut bstep_in = MIDI_DIN_1_IN.lock().await;
     loop {
-        if let Ok(packet) = bstep_in.receive().await {
+        if let Ok(packet) = bstep_in.get_mut().unwrap().receive().await {
             packets_from_beatstep(PacketList::single(packet)).await;
         }
     }
@@ -50,10 +45,9 @@ async fn dw6_rx() -> ! {
     // exclusive locked FOREVER muahahaha
     let mut dw6_in = MIDI_DIN_2_IN.lock().await;
     loop {
-        match dw6_in.receive().await {
+        match dw6_in.get_mut().unwrap().receive().await {
             Ok(packet) => packets_from_dw_6000(PacketList::single(packet)).await,
             Err(midi_err) => error!("dw6 rx error {}", midi_err),
-            _ => warn!("dw6 rx nothing"),
         }
     }
 }
@@ -61,7 +55,7 @@ async fn dw6_rx() -> ! {
 #[embassy_executor::task]
 async fn dw6_dump_request() -> ! {
     loop {
-        let _ = dw6_send(PacketList::from_iter(dump_request_sysex())).await;
+        let _ = dw6_send(PacketList::from_iter(dw6000::dump_request_sysex())).await;
         Timer::after(Duration::from_millis(250)).await;
     }
 }
@@ -71,7 +65,8 @@ async fn lfo_mod() -> ! {
     loop {
         // LFO2 modulation
         let mut state = DW6_CTRL.lock().await;
-        if let Some(lfo2_param) = state.lfo2_param.map(Dw6Param::from) {
+        let state = state.get_mut().unwrap();
+        if let Some(lfo2_param) = state.lfo2_param.map(dw6000::Dw6Param::from) {
             if let Some(root) = state.mod_dump.get(&lfo2_param).cloned() {
                 let max = lfo2_param.max_value();
                 let fmax = max as f32;
@@ -81,7 +76,7 @@ async fn lfo_mod() -> ! {
                 let mod_value = fmod.max(0.0).min(fmax) as u8;
 
                 if let Some(dump) = &state.current_dump {
-                    set_param_value(lfo2_param, mod_value, dump.as_slice());
+                    dw6000::set_param_value(lfo2_param, mod_value, dump.as_slice());
                     let sysex = param_set_sysex(lfo2_param, dump);
                     let _ = dw6_send(PacketList::from_iter(sysex)).await;
                 }
@@ -91,9 +86,21 @@ async fn lfo_mod() -> ! {
     }
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AppError {
+    Init,
+    Spawn(SpawnError)
+}
 
-pub fn start_app(spawner: Spawner) {
-    DW6_CTRL.init_static(Dw6ControlInner {
+impl From<SpawnError> for AppError {
+    fn from(value: SpawnError) -> Self {
+        AppError::Spawn(value)
+    }
+}
+
+pub async fn start_app(spawner: Spawner) -> Result<(), AppError> {
+    DW6_CTRL.lock().await.set(Dw6ControlInner {
         current_dump: None,
         mod_dump: HashMap::new(),
         base_page: KnobPage::Osc,
@@ -101,9 +108,9 @@ pub fn start_app(spawner: Spawner) {
         bank: None,
         lfo2: Lfo::default(),
         lfo2_param: None,
-    });
+    }).map_err(|_| AppError::Init)?;
 
-    DW6_SYSEX_DUMP.init_static(Vec::with_capacity(32));
+    DW6_SYSEX_DUMP.lock().await.set(Vec::new()).map_err(|_| AppError::Init)?;
 
     spawner.spawn(bstep_rx())?;
 
@@ -111,9 +118,10 @@ pub fn start_app(spawner: Spawner) {
 
     // unwrap!(spawner.spawn(lfo_mod()));
 
-    // unwrap!(spawner.spawn(dw6_dump_request()));
+    spawner.spawn(dw6_dump_request())?;
 
     info!("DW6000 Controller Active");
+    Ok(())
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -168,7 +176,7 @@ enum Lfo2Dest {
     MgVcf,
 }
 
-impl From<Lfo2Dest> for Dw6Param {
+impl From<Lfo2Dest> for dw6000::Dw6Param {
     fn from(dest: Lfo2Dest) -> Self {
         match dest {
             Lfo2Dest::Osc1Wave => Dw6Param::Osc1Wave,
@@ -203,11 +211,14 @@ impl From<Lfo2Dest> for Dw6Param {
     }
 }
 
+/// DW600 patch dump is 26 bytes sysex
+const DUMP_LENGTH: usize = 26;
+
 #[derive(Debug)]
 struct Dw6ControlInner {
-    current_dump: Option<Vec<u8>>,
+    current_dump: Option<Vec<u8, DUMP_LENGTH>>,
     // saved values from dump before being modulated
-    mod_dump: HashMap<Dw6Param, u8>,
+    mod_dump: HashMap<dw6000::Dw6Param, u8>,
     base_page: KnobPage,
     // if temp_page is released quickly, is becomes base_page
     temp_page: Option<(KnobPage, Instant)>,
@@ -251,22 +262,22 @@ fn note_prog(note: Note) -> Option<u8> {
 
 
 impl Dw6ControlInner {
-    fn set_modulated(&mut self, p: Dw6Param, root_value: u8) {
+    fn set_modulated(&mut self, p: dw6000::Dw6Param, root_value: u8) {
         self.mod_dump.insert(p, root_value);
     }
 
-    async fn unset_modulated(&mut self, p: Dw6Param) -> Result<(), MidiError> {
+    async fn unset_modulated(&mut self, p: dw6000::Dw6Param) -> Result<(), MidiError> {
         if let Some(root) = self.mod_dump.remove(&p) {
             if let Some(dump) = &mut self.current_dump {
                 let z = unsafe { slice::from_raw_parts_mut(dump.as_mut_ptr(), dump.len()) };
-                set_param_value(p, root, z);
+                dw6000::set_param_value(p, root, z);
                 self.send_param_value(p).await?
             }
         }
         Ok(())
     }
 
-    async fn send_param_value(&mut self, param: Dw6Param) -> Result<(), MidiError> {
+    async fn send_param_value(&mut self, param: dw6000::Dw6Param) -> Result<(), MidiError> {
         if let Some(dump) = &self.current_dump {
             dw6_send(param_set_sysex(param, dump)).await?
         }
@@ -275,10 +286,10 @@ impl Dw6ControlInner {
 }
 
 
-async fn toggle_param(param: Dw6Param, dump: &mut Vec<u8>) -> Result<(), MidiError> {
-    let mut value = get_param_value(param, dump);
+async fn toggle_param(param: dw6000::Dw6Param, dump: &mut Vec<u8, DUMP_LENGTH>) -> Result<(), MidiError> {
+    let mut value = dw6000::get_param_value(param, dump);
     value ^= 1;
-    set_param_value(param, value, dump.as_mut_slice());
+    dw6000::set_param_value(param, value, &dump);
     dw6_send(param_set_sysex(param, dump)).await
 }
 
@@ -294,18 +305,20 @@ async fn packets_from_beatstep(packets: PacketList) {
 
 async fn dw6_send(packets: impl Into<PacketList>) -> Result<(), MidiError> {
     let mut dw6_out = MIDI_DIN_2_OUT.lock().await;
-    dw6_out.transmit(packets.into()).await
+    dw6_out.get_mut().unwrap().transmit(packets.into()).await
 }
 
 async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
     let mut state = DW6_CTRL.lock().await;
+    let state = state.get_mut().unwrap();
     match msg {
         MidiMessage::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
                 if let Some(bank) = state.bank {
-                    let pc = program_change(channel(1), (bank * 8) + prog)?;
+                    // TODO parameterize channel
+                    let pc = program_change(channel(1)?, (bank * 8) + prog)?;
                     dw6_send(PacketList::single(pc.into())).await?;
                 }
             }
@@ -344,7 +357,7 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                 if let Some(root) = state.mod_dump.get_mut(&param) {
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
-                    set_param_value(param, value.into(), dump.as_mut_slice());
+                    dw6000::set_param_value(param, value.into(), &dump);
                     dw6_send(param_set_sysex(param, dump)).await?
 
                     // context.packets.clear();
@@ -376,7 +389,7 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                         if let Some(ref mut dump) = &mut state.current_dump {
                             let new_dest = Lfo2Dest::try_from(value.0).ok();
                             if let Some(mod_p) = new_dest.map(Dw6Param::from) {
-                                let saved_val = get_param_value(mod_p, dump);
+                                let saved_val = dw6000::get_param_value(mod_p, dump);
                                 state.set_modulated(mod_p, saved_val);
                                 state.lfo2_param = new_dest;
                             }
@@ -416,11 +429,12 @@ fn cc_to_ctl_param(cc: midi::Control, page: KnobPage) -> Option<CtlParam> {
 async fn packets_from_dw_6000(packets: PacketList) {
     for packet in packets.0.into_iter() {
         // lock sysex buffer
+        debug!("packet from DW6");
         let mut buffer = DW6_SYSEX_DUMP.lock().await;
         if let Ok(msg) = MidiMessage::try_from(packet) {
-            match capture_sysex(buffer.deref_mut(), msg) {
+            match capture_sysex(buffer.get_mut().unwrap(), msg) {
                 Ok(SysexCapture::Captured) =>
-                    if let Err(err) = from_dw6000_dump(buffer.deref_mut()).await {
+                    if let Err(err) = from_dw6000_dump(buffer.get().unwrap()).await {
                         error!("{}", err);
                     }
                 Ok(SysexCapture::Pending) => {}
@@ -435,11 +449,10 @@ async fn from_dw6000_dump(dump: &[u8]) -> Result<bool, MidiError> {
     let mut state = DW6_CTRL.lock().await;
     // if let Some(mut dump) = ctx.tags.remove(&Tag::Dump(26)) {
     // rewrite original values before they were modulated
-    for s in &state.mod_dump {
-        set_param_value(*s.0, *s.1, dump)
+    for s in &state.get_mut().unwrap().mod_dump {
+        dw6000::set_param_value(*s.0, *s.1, dump)
     }
-    state.current_dump = Some(Vec::from(dump));
-    // }
+    state.get_mut().unwrap().current_dump = Some(Vec::from_slice(dump).unwrap());
     Ok(false)
 }
 

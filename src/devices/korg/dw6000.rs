@@ -18,7 +18,7 @@ const WRITE_OK: u8 = 0x21;
 const WRITE_ERR: u8 = 0x22;
 
 const ID_HEADER: &[u8] = &[KORG, ID_FORMAT];
-const DATA_HEADER: &[u8] = &[KORG, DATA_FORMAT, DW_6000_ID];
+pub const DATA_HEADER: &[u8] = &[KORG, DATA_FORMAT, DW_6000_ID];
 
 pub fn id_request_sysex() -> SysexSeq {
     SysexSeq::new(vec![Seq(ID_HEADER)])

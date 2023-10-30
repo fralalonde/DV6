@@ -26,4 +26,5 @@ target = "thumbv7em-none-eabihf"
 
 [env]
 #DEFMT_LOG = "trace"
-DEFMT_LOG = "info"
+DEFMT_LOG = "debug"
+

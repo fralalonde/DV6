@@ -14,6 +14,9 @@ extern crate bitfield;
 #[macro_use]
 extern crate defmt;
 
+use cortex_m::peripheral::SCB;
+use cortex_m::peripheral::scb::FpuAccessMode;
+use cortex_m::Peripherals;
 use defmt::*;
 use embassy_executor::Spawner;
 
@@ -105,54 +108,63 @@ async fn blink(led: &'static mut Output<'static, PA1>) -> ! {
     }
 }
 
-use midi::{MidiMessage, Packet, PacketList, Velocity};
-use midi::MidiChannel::CH1;
-use midi::Note::C1;
+// use midi::{MidiMessage, Packet, PacketList, Velocity};
+// use midi::MidiChannel::CH1;
+// use midi::Note::C1;
 
-#[embassy_executor::task]
-async fn ping_uart5() -> ! {
-    let mut midi2_out = MIDI_DIN_2_OUT.lock().await;
-    loop {
-        let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
-        if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
-            error!("uh {}", err)
-        }
-        Timer::after(Duration::from_millis(500)).await;
-
-        let p = Packet::from(MidiMessage::NoteOff(CH1, C1, Velocity::MAX));
-        if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
-            error!("uh {}", err)
-        }
-        Timer::after(Duration::from_millis(500)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn echo_uart4() -> ! {
-    let mut midi1_out = MIDI_DIN_1_OUT.lock().await;
-    let mut midi1_in = MIDI_DIN_1_IN.lock().await;
-    loop {
-        if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
-            if let Err(err) = midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
-                error!("oups {}", err)
-            }
-        }
-    }
-}
-
-#[embassy_executor::task]
-async fn print_uart5() -> ! {
-    let mut midi2_in = MIDI_DIN_2_IN.lock().await;
-    loop {
-        if let Ok(packet) = midi2_in.get_mut().unwrap().receive().await {
-            let message = MidiMessage::try_from(packet).unwrap();
-            info!("{}", message);
-        }
-    }
-}
+// #[embassy_executor::task]
+// async fn ping_uart5() -> ! {
+//     let mut midi2_out = MIDI_DIN_2_OUT.lock().await;
+//     loop {
+//         let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
+//         if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
+//             error!("uh {}", err)
+//         }
+//         Timer::after(Duration::from_millis(500)).await;
+//
+//         let p = Packet::from(MidiMessage::NoteOff(CH1, C1, Velocity::MAX));
+//         if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
+//             error!("uh {}", err)
+//         }
+//         Timer::after(Duration::from_millis(500)).await;
+//     }
+// }
+//
+// #[embassy_executor::task]
+// async fn echo_uart4() -> ! {
+//     let mut midi1_out = MIDI_DIN_1_OUT.lock().await;
+//     let mut midi1_in = MIDI_DIN_1_IN.lock().await;
+//     loop {
+//         if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
+//             if let Err(err) =  midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
+//                 error!("oups {}", err)
+//             }
+//         }
+//     }
+// }
+//
+// #[embassy_executor::task]
+// async fn print_uart5() -> ! {
+//     let mut midi2_in = MIDI_DIN_2_IN.lock().await;
+//     loop {
+//         if let Ok(packet) = midi2_in.get_mut().unwrap().receive().await {
+//             let message = MidiMessage::try_from(packet).unwrap();
+//             info!("{}", message);
+//         }
+//     }
+// }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    let mut core_peri = cortex_m::Peripherals::take().unwrap();
+
+    // taken from stm32h7xx-hal
+    core_peri.SCB.enable_icache();
+    // // See Errata Sheet 2.2.1
+    // watchout for DMA
+    // // core_peri.SCB.enable_dcache(&mut core_peri.CPUID);
+    // core_peri.DWT.enable_cycle_counter();
+
     let config = embassy_stm32::Config::default();
     #[cfg(feature = "stm32f4")]
     {
@@ -161,7 +173,7 @@ async fn main(spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    info!("Boot seq");
+    info!("Boot seq icache:{} dcache:{} fpu: {}", SCB::icache_enabled(), SCB::dcache_enabled(), SCB::fpu_access_mode() == FpuAccessMode::Enabled);
 
     // Generate random seed.
     #[cfg(feature = "rng")]
@@ -216,8 +228,7 @@ async fn main(spawner: Spawner) {
     }
 
     let mut config = usart::Config::default();
-    config.baudrate = 115200;
-    // let tx_buf = [0u8; 32];
+    config.baudrate = 31250;
     let tx_buf = make_static!([0u8; 32]);
     let rx_buf = make_static!([0u8; 32]);
     // let mut uart1 = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.DMA1_CH0, NoDma, config);

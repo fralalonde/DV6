@@ -1,6 +1,6 @@
 //! Sends MIDI to Korg DW-6000 acccording to messages
 //!
-use midi::{MidiMessage, Note, program_change, MidiError, U7, PacketList, channel};
+use midi::{MidiMessage, Note, program_change, MidiError, U7, PacketList, channel, SysexError};
 
 use crate::{midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
 
@@ -21,14 +21,14 @@ use hashbrown::HashMap;
 use heapless::Vec;
 
 use midi::{capture_sysex, SysexCapture};
-use crate::devices::korg::dw6000::Dw6Param;
+use crate::devices::korg::dw6000::{DATA_HEADER, Dw6Param};
 use crate::resource::{Shared};
 
 const SHORT_PRESS_MS: Duration = Duration::from_millis(250);
 
 static DW6_CTRL: Shared<Dw6ControlInner> = Shared::uninit("DW6_CTRL");
 
-static DW6_SYSEX_DUMP: Shared<Vec<u8, 26>> = Shared::uninit("DW6_SYSEX_DUMP");
+static DW6_SYSEX_DUMP: Shared<Vec<u8, DUMP_LENGTH>> = Shared::uninit("DW6_SYSEX_DUMP");
 
 #[embassy_executor::task]
 async fn bstep_rx() -> ! {
@@ -56,7 +56,7 @@ async fn dw6_rx() -> ! {
 async fn dw6_dump_request() -> ! {
     loop {
         let _ = dw6_send(PacketList::from_iter(dw6000::dump_request_sysex())).await;
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after(Duration::from_millis(5000)).await;
     }
 }
 
@@ -211,8 +211,8 @@ impl From<Lfo2Dest> for dw6000::Dw6Param {
     }
 }
 
-/// DW600 patch dump is 26 bytes sysex
-const DUMP_LENGTH: usize = 26;
+/// DW600 patch dump size in bytes
+const DUMP_LENGTH: usize = 30;
 
 #[derive(Debug)]
 struct Dw6ControlInner {
@@ -428,18 +428,23 @@ fn cc_to_ctl_param(cc: midi::Control, page: KnobPage) -> Option<CtlParam> {
 
 async fn packets_from_dw_6000(packets: PacketList) {
     for packet in packets.0.into_iter() {
-        // lock sysex buffer
-        debug!("packet from DW6");
         let mut buffer = DW6_SYSEX_DUMP.lock().await;
         if let Ok(msg) = MidiMessage::try_from(packet) {
+            trace!("DW6000 message {}", msg);
             match capture_sysex(buffer.get_mut().unwrap(), msg) {
-                Ok(SysexCapture::Captured) =>
+                Ok(SysexCapture::Captured(len)) => {
+                    debug!("Captured Sysex: {} bytes", len);
+                    assert!(buffer.get().unwrap().starts_with(DATA_HEADER));
                     if let Err(err) = from_dw6000_dump(buffer.get().unwrap()).await {
                         error!("{}", err);
                     }
-                Ok(SysexCapture::Pending) => {}
+                }
+                Ok(SysexCapture::Pending(len)) => {}
                 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-                Err(_err) => warn!("sysex capture error")
+                Err(err) => warn!("sysex capture error: {:?}", err),
+                Ok(SysexCapture::NotSysex) => {
+                    info!("from DW6000: {}", msg)
+                }
             }
         }
     }

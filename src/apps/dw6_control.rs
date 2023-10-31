@@ -21,8 +21,9 @@ use hashbrown::HashMap;
 use heapless::Vec;
 
 use midi::{capture_sysex, SysexCapture};
-use crate::devices::korg::dw6000::{DATA_HEADER, Dw6Param};
+use crate::devices::korg::dw6000::{DATA_HEADER, Dw6Param, ShortDw6Sysex};
 use crate::resource::{Shared};
+use crate::sysex::SysexSeq;
 
 const SHORT_PRESS_MS: Duration = Duration::from_millis(250);
 
@@ -85,6 +86,10 @@ async fn lfo_mod() -> ! {
         Timer::after(Duration::from_millis(50)).await;
     }
 }
+
+// fn packets(bytes: impl Iterator<Item=u8>) -> SysexSeq<16> {
+//     SysexSeq::<16>::new(bytes)
+// }
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -461,7 +466,7 @@ async fn from_dw6000_dump(dump: &[u8]) -> Result<bool, MidiError> {
     Ok(false)
 }
 
-fn param_set_sysex(param: Dw6Param, dump_buf: &[u8]) -> sysex::SysexSeq {
+fn param_set_sysex(param: Dw6Param, dump_buf: &[u8]) -> ShortDw6Sysex {
     let dump = dw6000::as_dump_ref(dump_buf);
     let (p, v) = match param {
         Dw6Param::AssignMode | Dw6Param::BendOsc => (0, dump.assign_mode_bend_osc.0),

@@ -115,14 +115,14 @@ impl TryFrom<Packet> for MidiMessage {
                 } else {
                     Ok(SysexEnd1(payload[0]))
                 }
-            },
+            }
             (CodeIndexNumber::SysexEndsNext3, _, _, payload) => {
                 if payload[0] == SYSEX_START {
                     Ok(SysexSingleByte(payload[1]))
                 } else {
                     Ok(SysexEnd2(payload[0], payload[1]))
                 }
-            },
+            }
 
             (SystemCommonLen1, Ok(Some(Status::TimingClock)), ..) => Ok(TimingClock),
             (SystemCommonLen1, Ok(Some(Status::TuneRequest)), ..) => Ok(TuneRequest),

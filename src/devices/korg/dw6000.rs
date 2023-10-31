@@ -3,10 +3,10 @@
 //! Switching the LEDs on and off:
 #![allow(dead_code)]
 
-use crate::sysex::{SysexMatcher, Token, Tag, SysexSeq};
-use Token::{Seq, Cap, Val, Buf};
-use Tag::*;
-use alloc::vec::Vec;
+use heapless::Vec;
+use crate::sysex::{PatternExp, ExpType, pattern_match, SysexSeq};
+use PatternExp::{Seq, Cap, Val};
+use ExpType::*;
 
 const KORG: u8 = 0x42;
 const DW_6000_ID: u8 = 0x04;
@@ -20,36 +20,49 @@ const WRITE_ERR: u8 = 0x22;
 const ID_HEADER: &[u8] = &[KORG, ID_FORMAT];
 pub const DATA_HEADER: &[u8] = &[KORG, DATA_FORMAT, DW_6000_ID];
 
-pub fn id_request_sysex() -> SysexSeq {
-    SysexSeq::new(vec![Seq(ID_HEADER)])
+pub type ShortDw6Sysex = SysexSeq<8>;
+pub type LongDw6Sysex = SysexSeq<32>;
+
+pub fn id_request_sysex() -> ShortDw6Sysex {
+    SysexSeq::from_slices(&[ID_HEADER])
 }
 
-pub fn id_matcher() -> SysexMatcher {
-    SysexMatcher::new(vec![Seq(ID_HEADER), Val(DW_6000_ID)])
+pub fn id_matcher(buffer: &[u8]) -> bool {
+    let mut tokens: Vec<_, 0> = Vec::new();
+    pattern_match(buffer, &[Seq(ID_HEADER), Val(DW_6000_ID)], &mut tokens)
 }
 
-pub fn write_program_sysex(program: u8) -> SysexSeq {
-    SysexSeq::new(vec![Seq(DATA_HEADER), Val(0x11), Val(program)])
+pub fn store_program_sysex(patch_idx: u8) -> ShortDw6Sysex {
+    SysexSeq::from_slices(&[DATA_HEADER, &[0x11, patch_idx]])
 }
 
-pub fn load_program_sysex(dump: Vec<u8>) -> SysexSeq {
-    SysexSeq::new(vec![Seq(DATA_HEADER), Buf(dump)])
+pub fn load_program_sysex(dump: &[u8]) -> LongDw6Sysex {
+    SysexSeq::from_slices(&[DATA_HEADER, dump])
 }
 
-pub fn set_parameter_sysex(param: u8, value: u8) -> SysexSeq {
-    SysexSeq::new(vec![Seq(DATA_HEADER), Val(0x41), Val(param), Val(value)])
+pub fn set_parameter_sysex(param: u8, value: u8) -> ShortDw6Sysex {
+    SysexSeq::from_slices(&[DATA_HEADER, &[0x41, param, value]])
 }
 
-pub fn write_matcher() -> SysexMatcher {
-    SysexMatcher::new(vec![Seq(DATA_HEADER), Cap(ValueU7)])
+pub fn match_write(buffer: &[u8], expected: u8) -> Result<bool, ()> {
+    let mut tokens: Vec<_, 1> = Vec::new();
+    if pattern_match(buffer, &[Seq(DATA_HEADER), Cap(ValueU7)], &mut tokens) {
+        Ok(tokens.get(0).map(|(idx, _)| buffer[*idx] == expected).unwrap_or(false))
+    } else {
+        Ok(false)
+    }
 }
 
-pub fn dump_request_sysex() -> SysexSeq {
-    SysexSeq::new(vec![Seq(DATA_HEADER), Val(0x10)])
+pub fn dump_request_sysex() -> ShortDw6Sysex {
+    SysexSeq::from_slices(&[DATA_HEADER, &[0x10]])
 }
 
-pub fn dump_matcher() -> SysexMatcher {
-    SysexMatcher::new(vec![Seq(DATA_HEADER), Val(0x40), Cap(Dump(26))])
+pub fn dump_matcher(buffer: &[u8]) -> Option<&[u8]> {
+    let mut tokens: Vec<_, 1> = Vec::new();
+    if pattern_match(buffer, &[Seq(DATA_HEADER), Val(0x40), Cap(Bytes(26))], &mut tokens) {
+        return tokens.get(0).map(|(idx, _)| &buffer[*idx..]);
+    }
+    None
 }
 
 #[allow(unused)]

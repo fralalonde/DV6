@@ -4,13 +4,13 @@
 
 #![allow(unused)]
 #![allow(clippy::upper_case_acronyms)]
-use midi::{U7, U4, Note, Program, Control, MidiChannel, MidiError};
-use alloc::vec::Vec;
-use alloc::vec;
 
-use crate::sysex::Token::{Seq, Cap, Val};
-use crate::sysex::Tag::*;
-use crate::sysex::SysexSeq;
+use heapless::Vec;
+use midi::{U7, U4, Note, Program, Control, MidiChannel, MidiError};
+
+use crate::sysex::PatternExp::{Seq, Cap, Val};
+use crate::sysex::ExpType::*;
+use crate::sysex::{SysexSeq};
 use crate::sysex;
 
 const ID_FORMAT: u8 = 0x40;
@@ -38,8 +38,10 @@ const BEATSTEP: &[u8] = &[0x6B, 0x7F];
 //     Sysex::new(vec![Seq(DATA_HEADER), Buf(dump)])
 // }
 
-fn parameter_set(param: u8, control: u8, value: u8) -> SysexSeq {
-    SysexSeq::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x02, 0x00]), Val(param), Val(control), Val(value)])
+pub type LongSysex = SysexSeq<64>;
+
+fn parameter_set(sysex: &mut LongSysex, param: u8, control: u8, value: u8) {
+    sysex.extend_from_slices(&[ARTURIA, BEATSTEP, &[0x42, 0x02, 0x00, param, control, value]])
 }
 
 const MODE: u8 = 0x01;
@@ -49,128 +51,114 @@ const STEP_NOTE: u8 = 0x52;
 const STEP_ENABLED: u8 = 0x53;
 const SEQ: u8 = 0x50;
 
-pub fn beatstep_set(param: Param) -> Vec<SysexSeq> {
+pub fn beatstep_set(param: Param) -> LongSysex {
+    let mut sysex = LongSysex::new();
     match param {
         Param::PadOff(pad) =>
-            vec![parameter_set(MODE, pad.control_code(), PadMode::Off as u8)],
+            parameter_set(&mut sysex, MODE, pad.control_code(), PadMode::Off as u8),
         Param::PadMMC(pad, mmc) => {
             let ccode = pad.control_code();
-            vec![
-                parameter_set(MODE, ccode, PadMode::MMC as u8),
-                parameter_set(0x03, ccode, mmc as u8)
-            ]
+
+            parameter_set(&mut sysex, MODE, ccode, PadMode::MMC as u8);
+            parameter_set(&mut sysex, 0x03, ccode, mmc as u8)
         }
         Param::PadCC(pad, channel, cc, on, off, switch) => {
             let ccode = pad.control_code();
-            vec![
-                parameter_set(MODE, ccode, PadMode::CC as u8),
-                parameter_set(0x02, ccode, channel as u8),
-                parameter_set(0x03, ccode, cc.0),
-                parameter_set(0x04, ccode, on.0),
-                parameter_set(0x05, ccode, off.0),
-                parameter_set(0x06, ccode, switch as u8),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, PadMode::CC as u8);
+            parameter_set(&mut sysex, 0x02, ccode, channel as u8);
+            parameter_set(&mut sysex, 0x03, ccode, cc.0);
+            parameter_set(&mut sysex, 0x04, ccode, on.0);
+            parameter_set(&mut sysex, 0x05, ccode, off.0);
+            parameter_set(&mut sysex, 0x06, ccode, switch as u8);
         }
         Param::PadCCSilent(pad, channel, cc, on, off, switch) => {
             let ccode = pad.control_code();
-            vec![
-                parameter_set(MODE, ccode, PadMode::CCSilent as u8),
-                parameter_set(0x02, ccode, channel as u8),
-                parameter_set(0x03, ccode, cc.0),
-                parameter_set(0x04, ccode, on.0),
-                parameter_set(0x05, ccode, off.0),
-                parameter_set(0x06, ccode, switch as u8),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, PadMode::CCSilent as u8);
+            parameter_set(&mut sysex, 0x02, ccode, channel as u8);
+            parameter_set(&mut sysex, 0x03, ccode, cc.0);
+            parameter_set(&mut sysex, 0x04, ccode, on.0);
+            parameter_set(&mut sysex, 0x05, ccode, off.0);
+            parameter_set(&mut sysex, 0x06, ccode, switch as u8);
         }
         Param::PadNote(pad, channel, note, switch) => {
             let ccode = pad.control_code();
-            vec![
-                parameter_set(MODE, ccode, PadMode::Note as u8),
-                parameter_set(0x02, ccode, channel as u8),
-                parameter_set(0x03, ccode, note as u8),
-                parameter_set(0x06, ccode, switch as u8),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, PadMode::Note as u8);
+            parameter_set(&mut sysex, 0x02, ccode, channel as u8);
+            parameter_set(&mut sysex, 0x03, ccode, note as u8);
+            parameter_set(&mut sysex, 0x06, ccode, switch as u8);
         }
         Param::PadProgramChange(pad, channel, program, lsb, msb) => {
             let ccode = pad.control_code();
-            vec![
-                parameter_set(MODE, ccode, PadMode::ProgramChange as u8),
-                parameter_set(0x02, ccode, channel as u8),
-                parameter_set(0x03, ccode, program.0),
-                parameter_set(0x04, ccode, lsb.0),
-                parameter_set(0x05, ccode, msb.0),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, PadMode::ProgramChange as u8);
+            parameter_set(&mut sysex, 0x02, ccode, channel as u8);
+            parameter_set(&mut sysex, 0x03, ccode, program.0);
+            parameter_set(&mut sysex, 0x04, ccode, lsb.0);
+            parameter_set(&mut sysex, 0x05, ccode, msb.0);
         }
         Param::KnobOff(knob) => {
             let ccode = knob.control_code();
-            vec![
-                parameter_set(MODE, ccode, KnobMode::Off as u8),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, KnobMode::Off as u8);
         }
         Param::KnobCC(encoder, channel, control, minimum, maximum, behavior) => {
             let ccode = encoder.control_code();
-            vec![
-                parameter_set(MODE, ccode, KnobMode::CC as u8),
-                parameter_set(0x02, ccode, channel as u8),
-                parameter_set(0x03, ccode, control.0),
-                parameter_set(0x04, ccode, minimum.0),
-                parameter_set(0x05, ccode, maximum.0),
-                parameter_set(0x06, ccode, behavior as u8),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, KnobMode::CC as u8);
+            parameter_set(&mut sysex, 0x02, ccode, channel as u8);
+            parameter_set(&mut sysex, 0x03, ccode, control.0);
+            parameter_set(&mut sysex, 0x04, ccode, minimum.0);
+            parameter_set(&mut sysex, 0x05, ccode, maximum.0);
+            parameter_set(&mut sysex, 0x06, ccode, behavior as u8);
         }
         Param::KnobNRPN(knob, channel, granularity, banklsb, bankmsb, nrpntype) => {
             let ccode = knob.control_code();
-            vec![
-                parameter_set(MODE, ccode, KnobMode::NRPN as u8),
-                parameter_set(0x02, ccode, channel as u8),
-                parameter_set(0x03, ccode, granularity as u8),
-                parameter_set(0x04, ccode, banklsb.0),
-                parameter_set(0x05, ccode, bankmsb.0),
-                parameter_set(0x06, ccode, nrpntype as u8),
-            ]
+            parameter_set(&mut sysex, MODE, ccode, KnobMode::NRPN as u8);
+            parameter_set(&mut sysex, 0x02, ccode, channel as u8);
+            parameter_set(&mut sysex, 0x03, ccode, granularity as u8);
+            parameter_set(&mut sysex, 0x04, ccode, banklsb.0);
+            parameter_set(&mut sysex, 0x05, ccode, bankmsb.0);
+            parameter_set(&mut sysex, 0x06, ccode, nrpntype as u8);
         }
 
         Param::GlobalMidiChannel(channel) =>
-            vec![parameter_set(MIDI_CHANNEL, 0x0B, channel as u8)],
+            parameter_set(&mut sysex, MIDI_CHANNEL, 0x0B, channel as u8),
         Param::CVGateChannel(channel) =>
-            vec![parameter_set(MIDI_CHANNEL, 0x0C, channel as u8)],
+            parameter_set(&mut sysex, MIDI_CHANNEL, 0x0C, channel as u8),
         Param::KnobAcceleration(acceleration) =>
-            vec![parameter_set(CURVE, 0x04, acceleration as u8)],
+            parameter_set(&mut sysex, CURVE, 0x04, acceleration as u8),
         Param::PadVelocityCurve(vel_curve) =>
-            vec![parameter_set(CURVE, 0x03, vel_curve as u8)],
-
+            parameter_set(&mut sysex, CURVE, 0x03, vel_curve as u8),
         Param::StepNote(stepnum, note) =>
-            vec![parameter_set(STEP_NOTE, stepnum.0, note as u8)],
+            parameter_set(&mut sysex, STEP_NOTE, stepnum.0, note as u8),
         Param::StepEnabled(stepnum, bool) =>
-            vec![parameter_set(STEP_ENABLED, stepnum.0, if bool { 1 } else { 0 })],
+            parameter_set(&mut sysex, STEP_ENABLED, stepnum.0, if bool { 1 } else { 0 }),
         Param::SeqChannel(channel) =>
-            vec![parameter_set(SEQ, SeqGlobal::Channel as u8, channel as u8)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Channel as u8, channel as u8),
         Param::SeqTranspose(root_note) =>
-            vec![parameter_set(SEQ, SeqGlobal::Transpose as u8, root_note.0 as u8)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Transpose as u8, root_note.0 as u8),
         Param::SeqScale(scale) =>
-            vec![parameter_set(SEQ, SeqGlobal::Scale as u8, scale as u8)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Scale as u8, scale as u8),
         Param::SeqMode(mode) =>
-            vec![parameter_set(SEQ, SeqGlobal::Mode as u8, mode as u8)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Mode as u8, mode as u8),
         Param::SeqStepSize(size) =>
-            vec![parameter_set(SEQ, SeqGlobal::StepSize as u8, size as u8)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::StepSize as u8, size as u8),
         Param::SeqPatternLength(plen) =>
-            vec![parameter_set(SEQ, SeqGlobal::PatternLength as u8, plen.0)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::PatternLength as u8, plen.0),
         Param::SeqSwing(value) =>
-            vec![parameter_set(SEQ, SeqGlobal::Swing as u8, value.0)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Swing as u8, value.0),
         Param::SeqGate(value) =>
-            vec![parameter_set(SEQ, SeqGlobal::Gate as u8, value.0)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Gate as u8, value.0),
         Param::SeqLegato(value) =>
-            vec![parameter_set(SEQ, SeqGlobal::Legato as u8, value as u8)],
+            parameter_set(&mut sysex, SEQ, SeqGlobal::Legato as u8, value as u8),
     }
+    sysex
 }
 
-pub fn beatstep_control_get(param: u8, control: u8) -> SysexSeq {
-    SysexSeq::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Seq(&[0x42, 0x01, 0x00]), Val(param), Val(control)])
+pub fn beatstep_control_get(param: u8, control: u8) -> SysexSeq<7> {
+    SysexSeq::from_slices(&[ARTURIA, BEATSTEP, &[0x42, 0x01, 0x00, param, control]])
 }
 
-pub fn parameter_match() -> sysex::SysexMatcher {
-    sysex::SysexMatcher::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Cap(ValueU7), Cap(ValueU7), Cap(ValueU7)])
-}
+// pub fn parameter_match() -> sysex::SysexMatcher {
+//     sysex::SysexMatcher::new(vec![Seq(ARTURIA), Seq(BEATSTEP), Cap(ValueU7), Cap(ValueU7), Cap(ValueU7)])
+// }
 
 #[derive(Debug)]
 #[repr(u8)]

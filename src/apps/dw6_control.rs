@@ -1,8 +1,8 @@
 //! Sends MIDI to Korg DW-6000 acccording to messages
 //!
-use midi::{MidiMessage, Note, program_change, MidiError, U7, PacketList, channel, SysexError};
+use midi::{MidiMessage, Note, program_change, MidiError, U7, PacketList, channel, SysexError, Packet};
 
-use crate::{midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
+use crate::{BLINK, midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
 
 use core::convert::TryFrom;
 
@@ -36,7 +36,7 @@ async fn bstep_rx() -> ! {
     let mut bstep_in = MIDI_DIN_1_IN.lock().await;
     loop {
         if let Ok(packet) = bstep_in.get_mut().unwrap().receive().await {
-            packets_from_beatstep(PacketList::single(packet)).await;
+            packet_from_beatstep(packet).await;
         }
     }
 }
@@ -57,7 +57,7 @@ async fn dw6_rx() -> ! {
 async fn dw6_dump_request() -> ! {
     loop {
         let _ = dw6_send(PacketList::from_iter(dw6000::dump_request_sysex())).await;
-        Timer::after(Duration::from_millis(5000)).await;
+        Timer::after(Duration::from_millis(500)).await;
     }
 }
 
@@ -95,7 +95,7 @@ async fn lfo_mod() -> ! {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AppError {
     Init,
-    Spawn(SpawnError)
+    Spawn(SpawnError),
 }
 
 impl From<SpawnError> for AppError {
@@ -131,6 +131,7 @@ pub async fn start_app(spawner: Spawner) -> Result<(), AppError> {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
+#[derive(defmt::Format)]
 enum KnobPage {
     Osc = 0,
     Env = 1,
@@ -141,6 +142,7 @@ enum KnobPage {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
+#[derive(defmt::Format)]
 enum TogglePage {
     Arp = 4,
     Latch = 5,
@@ -150,6 +152,7 @@ enum TogglePage {
 
 #[derive(Debug, Copy, Clone, TryFromPrimitive)]
 #[repr(u8)]
+#[derive(defmt::Format)]
 enum Lfo2Dest {
     Osc1Wave,
     Osc1Level,
@@ -181,7 +184,7 @@ enum Lfo2Dest {
     MgVcf,
 }
 
-impl From<Lfo2Dest> for dw6000::Dw6Param {
+impl From<Lfo2Dest> for Dw6Param {
     fn from(dest: Lfo2Dest) -> Self {
         match dest {
             Lfo2Dest::Osc1Wave => Dw6Param::Osc1Wave,
@@ -223,7 +226,7 @@ const DUMP_LENGTH: usize = 30;
 struct Dw6ControlInner {
     current_dump: Option<Vec<u8, DUMP_LENGTH>>,
     // saved values from dump before being modulated
-    mod_dump: HashMap<dw6000::Dw6Param, u8>,
+    mod_dump: HashMap<Dw6Param, u8>,
     base_page: KnobPage,
     // if temp_page is released quickly, is becomes base_page
     temp_page: Option<(KnobPage, Instant)>,
@@ -267,11 +270,11 @@ fn note_prog(note: Note) -> Option<u8> {
 
 
 impl Dw6ControlInner {
-    fn set_modulated(&mut self, p: dw6000::Dw6Param, root_value: u8) {
+    fn set_modulated(&mut self, p: Dw6Param, root_value: u8) {
         self.mod_dump.insert(p, root_value);
     }
 
-    async fn unset_modulated(&mut self, p: dw6000::Dw6Param) -> Result<(), MidiError> {
+    async fn unset_modulated(&mut self, p: Dw6Param) -> Result<(), MidiError> {
         if let Some(root) = self.mod_dump.remove(&p) {
             if let Some(dump) = &mut self.current_dump {
                 let z = unsafe { slice::from_raw_parts_mut(dump.as_mut_ptr(), dump.len()) };
@@ -282,7 +285,7 @@ impl Dw6ControlInner {
         Ok(())
     }
 
-    async fn send_param_value(&mut self, param: dw6000::Dw6Param) -> Result<(), MidiError> {
+    async fn send_param_value(&mut self, param: Dw6Param) -> Result<(), MidiError> {
         if let Some(dump) = &self.current_dump {
             dw6_send(param_set_sysex(param, dump)).await?
         }
@@ -291,19 +294,17 @@ impl Dw6ControlInner {
 }
 
 
-async fn toggle_param(param: dw6000::Dw6Param, dump: &mut Vec<u8, DUMP_LENGTH>) -> Result<(), MidiError> {
+async fn toggle_param(param: Dw6Param, dump: &mut Vec<u8, DUMP_LENGTH>) -> Result<(), MidiError> {
     let mut value = dw6000::get_param_value(param, dump);
     value ^= 1;
     dw6000::set_param_value(param, value, &dump);
     dw6_send(param_set_sysex(param, dump)).await
 }
 
-async fn packets_from_beatstep(packets: PacketList) {
-    for packet in packets.0.into_iter() {
-        if let Ok(msg) = MidiMessage::try_from(packet) {
-            if let Err(err) = msg_from_beatstep(msg).await {
-                error!("{}", err);
-            }
+async fn packet_from_beatstep(packet: Packet) {
+    if let Ok(msg) = MidiMessage::try_from(packet) {
+        if let Err(err) = msg_from_beatstep(msg).await {
+            error!("{}", err);
         }
     }
 }
@@ -316,22 +317,30 @@ async fn dw6_send(packets: impl Into<PacketList>) -> Result<(), MidiError> {
 async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
     let mut state = DW6_CTRL.lock().await;
     let state = state.get_mut().unwrap();
+    trace!("msg from beatstep {}", msg);
+    BLINK.signal(());
     match msg {
         MidiMessage::NoteOn(_, note, _) => {
             if let Some(bank) = note_bank(note) {
+                debug!("selected bank {}", bank);
                 state.bank = Some(bank)
             } else if let Some(prog) = note_prog(note) {
+                debug!("selected prog {}", prog);
                 if let Some(bank) = state.bank {
                     // TODO parameterize channel
                     let pc = program_change(channel(1)?, (bank * 8) + prog)?;
                     dw6_send(PacketList::single(pc.into())).await?;
+                } else {
+                    debug!("no bank selected");
                 }
             }
             if let Some(page) = note_page(note) {
+                debug!("selected temp page {:?}", page);
                 state.temp_page = Some((page, Instant::now()));
             }
             if let Some(tog) = toggle_page(note) {
                 if let Some(dump) = &mut state.current_dump {
+                    debug!("selected toggle {}", tog);
                     match tog {
                         TogglePage::Arp => {}
                         TogglePage::Latch => {}
@@ -343,6 +352,7 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
         }
         MidiMessage::NoteOff(_, note, _) => {
             if state.bank == note_bank(note) {
+                debug!("unselected bank");
                 state.bank = None
             }
             if let Some((temp_page, press_start_ms)) = state.temp_page {
@@ -350,6 +360,7 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                     if note_page == temp_page {
                         let held_for_ms = Instant::now() - press_start_ms;
                         if held_for_ms < SHORT_PRESS_MS {
+                            debug!("selected base page {}", temp_page);
                             state.base_page = temp_page;
                         }
                         state.temp_page = None;
@@ -363,13 +374,14 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
                     dw6000::set_param_value(param, value.into(), &dump);
+                    debug!("set param {} value {}", param, value);
                     dw6_send(param_set_sysex(param, dump)).await?
 
                     // context.packets.clear();
                     // context.packets.extend(param_to_sysex(param, dump));
                     // context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, dump)));
                 } else {
-                    info!("no dump yet");
+                    debug!("no dump yet");
                 }
             } else if let Some(param) = cc_to_ctl_param(cc, state.active_page()) {
                 match param {
@@ -435,10 +447,10 @@ async fn packets_from_dw_6000(packets: PacketList) {
     for packet in packets.0.into_iter() {
         let mut buffer = DW6_SYSEX_DUMP.lock().await;
         if let Ok(msg) = MidiMessage::try_from(packet) {
-            trace!("DW6000 message {}", msg);
+            trace!("message from DW6000 {}", msg);
+            BLINK.signal(());
             match capture_sysex(buffer.get_mut().unwrap(), msg) {
                 Ok(SysexCapture::Captured(len)) => {
-                    debug!("Captured Sysex: {} bytes", len);
                     assert!(buffer.get().unwrap().starts_with(DATA_HEADER));
                     if let Err(err) = from_dw6000_dump(buffer.get().unwrap()).await {
                         error!("{}", err);

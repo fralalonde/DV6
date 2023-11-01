@@ -67,6 +67,7 @@ pub fn dump_matcher(buffer: &[u8]) -> Option<&[u8]> {
 
 #[allow(unused)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(defmt::Format)]
 pub enum Dw6Param {
     Osc1Wave,
     Osc1Level,

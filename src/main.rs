@@ -42,6 +42,8 @@ use crate::port::midi_usb;
 use crate::port::midi_usb::MidiClass;
 
 use embassy_stm32::usb_otg;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::signal::Signal;
 
 use embassy_time::{Duration, Timer};
 use crate::port::serial_buffered::{BufferedSerialMidiIn, BufferedSerialMidiOut};
@@ -91,6 +93,8 @@ static MIDI_USB_1_IN: Shared<midi_usb::Receiver<'static, Driver<'static, periphe
 #[cfg(feature = "rng")]
 static CHAOS: Shared<rng::Rng<'static, RNG>> = Shared::uninit("CHAOS");
 
+static BLINK: Signal<ThreadModeRawMutex, ()> = Signal::new();
+
 type UsbDriver = Driver<'static, peripherals::USB_OTG_FS>;
 
 #[embassy_executor::task]
@@ -98,15 +102,15 @@ async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) -> ! {
     device.run().await
 }
 
-#[embassy_executor::task]
-async fn blink(led: &'static mut Output<'static, PA1>) -> ! {
-    loop {
-        led.set_high();
-        Timer::after(Duration::from_millis(100)).await;
-        led.set_low();
-        Timer::after(Duration::from_millis(100)).await;
-    }
-}
+// #[embassy_executor::task]
+// async fn blink(led: &'static mut Output<'static, PA1>) -> ! {
+//     loop {
+//         led.set_high();
+//         Timer::after(Duration::from_millis(100)).await;
+//         led.set_low();
+//         Timer::after(Duration::from_millis(100)).await;
+//     }
+// }
 
 // use midi::{MidiMessage, Packet, PacketList, Velocity};
 // use midi::MidiChannel::CH1;
@@ -227,6 +231,7 @@ async fn main(spawner: Spawner) {
         unwrap!(spawner.spawn(usb_task(usb_bus)));
     }
 
+    // DW-6000 DIN MIDI
     let mut config = usart::Config::default();
     config.baudrate = 31250;
     let tx_buf = make_static!([0u8; 32]);
@@ -238,6 +243,8 @@ async fn main(spawner: Spawner) {
     let _ = MIDI_DIN_2_OUT.lock().await.set(BufferedSerialMidiOut::new(uart5_tx));
     let _ = MIDI_DIN_2_IN.lock().await.set(BufferedSerialMidiIn::new(uart5_rx));
 
+    // Beatstep USB MIDI thru coprocessor
+    // https://github.com/gdsports/usbhostcopro
     let mut config = usart::Config::default();
     config.baudrate = 115200;
     let tx_buf = make_static!([0u8; 32]);
@@ -247,15 +254,22 @@ async fn main(spawner: Spawner) {
     let _ = MIDI_DIN_1_OUT.lock().await.set(BufferedSerialMidiOut::new(uart4_tx));
     let _ = MIDI_DIN_1_IN.lock().await.set(BufferedSerialMidiIn::new(uart4_rx));
 
-    let led = Output::new(p.PA1, Level::High, Speed::Low);
-    let led = make_static!(led);
-    unwrap!(spawner.spawn(blink(led)));
+    let mut led = Output::new(p.PA1, Level::High, Speed::Low);
+    // let led = make_static!(led);
+    // unwrap!(spawner.spawn(blink(led)));
 
     // unwrap!(spawner.spawn(ping_uart5()));
     // unwrap!(spawner.spawn(echo_uart4()));
     // unwrap!(spawner.spawn(print_uart5()));
 
-    apps::dw6_control::start_app(spawner).await.unwrap()
+    apps::dw6_control::start_app(spawner).await.unwrap();
+
+    loop {
+        let _ = BLINK.wait().await;
+        led.set_low();
+        Timer::after(Duration::from_millis(30)).await;
+        led.set_high();
+    }
 }
 
 

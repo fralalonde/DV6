@@ -4,7 +4,6 @@ use micromath::F32Ext;
 
 use core::fmt::{Debug, Formatter};
 use embassy_time::Instant;
-use crate::{CPU_FREQ};
 
 #[derive(Debug, FromPrimitive, Copy, Clone)]
 #[repr(u8)]
@@ -43,14 +42,12 @@ impl Default for Lfo {
     fn default() -> Self {
         Self {
             offset: Instant::now(),
-            period: 0.0,
+            period: 200.0,
             amount: 0.0,
             wave: Default::default(),
         }
     }
 }
-
-const F_CPU_FREQ: f32 = CPU_FREQ as f32;
 
 // Yes, these computations are HORRIBLY INEFFICIENT and naive. IJDGAF.
 impl Lfo {
@@ -98,11 +95,11 @@ impl Lfo {
     }
 
     pub fn get_rate_hz(&self) -> f32 {
-        F_CPU_FREQ / self.period
+        1000.0 / self.period
     }
 
     pub fn set_rate_hz(&mut self, rate: f32) {
-        self.period = F_CPU_FREQ / rate;
+        self.period = 1000.0 / rate;
     }
 
     pub fn get_waveform(&self) -> Waveform {

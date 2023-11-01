@@ -5,8 +5,8 @@
 
 extern crate embedded_midi as midi;
 
-#[macro_use]
-extern crate alloc;
+// #[macro_use]
+// extern crate alloc;
 
 #[macro_use]
 extern crate bitfield;
@@ -56,8 +56,7 @@ mod port;
 mod sysex;
 mod allocator;
 mod log_defmt;
-
-pub const CPU_FREQ: u32 = 48_000_000;
+// mod display;
 
 #[cfg(feature = "stm32f4")]
 bind_interrupts!(struct Irqs {
@@ -74,10 +73,6 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
-
-// static SHARED: Shared<BufferedUartTx<'_, embassy_stm32::peripherals::UART5>> = Shared::uninit("UART5");
-// SHARED.lock().await.set(uart4_tx);
-// unwrap!(uart4.get_mut().unwrap().write_all("V".as_bytes()).await);
 
 static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
 static MIDI_DIN_2_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_IN");

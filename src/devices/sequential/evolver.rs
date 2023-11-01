@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
 use crate::sysex::{ PatternExp, ExpType};
-use PatternExp::{Seq, Cap};
 use ExpType::*;
-use alloc::vec;
 
 const SEQUENTIAL: u8 = 0x01;
 const EVOLVER: u8 = 0x20;

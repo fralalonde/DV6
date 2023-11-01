@@ -40,7 +40,7 @@ num_enum = { version = "0.7", default-features = false }
 num = { version = "0.4", default-features = false }
 
 embedded-midi = { path = "./embedded-midi", features = ["defmt", "embassy"] }
-#lvgl = "0.6.2"
+#lvgl = { version = "0.6.2", default-features = false }
 
 [features]
 default = []

@@ -2,8 +2,9 @@
 use lvgl::LvError;
 use display_interface::DisplayError;
 
-pub mod gui;
+// pub mod gui;
 
+static DISPLAY: Channel<ThreadModeRawMutex, u32, 2> = Channel::new();
 
 #[derive(Debug)]
 pub enum GuiError {

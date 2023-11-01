@@ -1,7 +1,7 @@
 use core::convert::{TryFrom, TryInto};
 use MidiMessage::*;
 use CodeIndexNumber::{SystemCommonLen1, SystemCommonLen2, SystemCommonLen3};
-use defmt::info;
+
 use crate::{MidiChannel, Note, Velocity, Pressure, Program, Control, U7, Bend, CodeIndexNumber, Packet, Status, MidiError, Cull};
 use crate::status::{SYSEX_END, is_non_status, SYSEX_START, NOTE_OFF, NOTE_ON, NOTE_PRESSURE, CHANNEL_PRESSURE, PROGRAM_CHANGE, CONTROL_CHANGE, PITCH_BEND, TIME_CODE_QUARTER_FRAME, SONG_POSITION_POINTER, SONG_SELECT, TUNE_REQUEST, TIMING_CLOCK, START, CONTINUE, STOP, ACTIVE_SENSING, SYSTEM_RESET, MEASURE_END};
 

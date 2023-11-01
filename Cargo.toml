@@ -40,6 +40,7 @@ num_enum = { version = "0.7", default-features = false }
 num = { version = "0.4", default-features = false }
 
 embedded-midi = { path = "./embedded-midi", features = ["defmt", "embassy"] }
+#lvgl = "0.6.2"
 
 [features]
 default = []
@@ -54,6 +55,7 @@ stm32f4 = []
 #bluepill = ["usb", "stm32f1", "embassy-stm32/stm32f103c8"]
 blackpill = ["usb_otg", "stm32f4", "embassy-stm32/stm32f411ce"]
 devebox = ["usb_otg", "stm32h7", "embassy-stm32/stm32h743vi"]
+blackpill2 = ["usb_otg", "stm32f4", "embassy-stm32/stm32f411ce"]
 
 [profile.release]
 debug = 2

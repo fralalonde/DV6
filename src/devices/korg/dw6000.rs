@@ -261,7 +261,6 @@ impl Dw6Param {
         }
     }
 
-
     pub fn dump_index(&self) -> usize {
         use Dw6Param::*;
         match self {

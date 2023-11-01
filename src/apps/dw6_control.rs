@@ -121,7 +121,7 @@ pub async fn start_app(spawner: Spawner) -> Result<(), AppError> {
 
     unwrap!(spawner.spawn(dw6_rx()));
 
-    // unwrap!(spawner.spawn(lfo_mod()));
+    unwrap!(spawner.spawn(lfo_mod()));
 
     spawner.spawn(dw6_dump_request())?;
 
@@ -314,7 +314,7 @@ async fn dw6_send(packets: impl Into<PacketList>) -> Result<(), MidiError> {
     dw6_out.get_mut().unwrap().transmit(packets.into()).await
 }
 
-async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
+async fn msg_from_beatstep(msg: MidiMessage) -> Result<(), MidiError> {
     let mut state = DW6_CTRL.lock().await;
     let state = state.get_mut().unwrap();
     trace!("msg from beatstep {}", msg);
@@ -328,8 +328,11 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                 debug!("selected prog {}", prog);
                 if let Some(bank) = state.bank {
                     // TODO parameterize channel
-                    let pc = program_change(channel(1)?, (bank * 8) + prog)?;
+                    let program_num = (bank * 8) + prog;
+                    let pc = program_change(channel(1)?, program_num)?;
                     dw6_send(PacketList::single(pc.into())).await?;
+                    debug!("program changed to {}", program_num);
+                    return Ok(());
                 } else {
                     debug!("no bank selected");
                 }
@@ -337,16 +340,18 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
             if let Some(page) = note_page(note) {
                 debug!("selected temp page {:?}", page);
                 state.temp_page = Some((page, Instant::now()));
+                return Ok(());
             }
             if let Some(tog) = toggle_page(note) {
                 if let Some(dump) = &mut state.current_dump {
-                    debug!("selected toggle {}", tog);
+                    debug!("toggled {}", tog);
                     match tog {
                         TogglePage::Arp => {}
                         TogglePage::Latch => {}
                         TogglePage::Polarity => toggle_param(Dw6Param::Polarity, dump).await?,
                         TogglePage::Chorus => toggle_param(Dw6Param::Chorus, dump).await?,
                     }
+                    return Ok(());
                 }
             }
         }
@@ -364,6 +369,7 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                             state.base_page = temp_page;
                         }
                         state.temp_page = None;
+                        return Ok(());
                     }
                 }
             }
@@ -374,12 +380,13 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                     *root = value.0
                 } else if let Some(dump) = &mut state.current_dump {
                     dw6000::set_param_value(param, value.into(), &dump);
-                    debug!("set param {} value {}", param, value);
-                    dw6_send(param_set_sysex(param, dump)).await?
 
+                    dw6_send(param_set_sysex(param, dump)).await?;
+                    debug!("set param {} value {}", param, value);
                     // context.packets.clear();
                     // context.packets.extend(param_to_sysex(param, dump));
                     // context.strings.push(format!("{:?}\n{:?}", param, get_param_value(param, dump)));
+                    return Ok(())
                 } else {
                     debug!("no dump yet");
                 }
@@ -387,7 +394,7 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                 match param {
                     CtlParam::Lfo2Rate => {
                         let base_rate = (value.0 as f32 + 1.0) * 0.1;
-                        info!("ratev {} ratex {}", value.0, base_rate);
+                        debug!("ratev {} ratex {}", value.0, base_rate);
                         state.lfo2.set_rate_hz(base_rate.min(40.0).max(0.03));
                         // context.strings.push(format!("{:?}\n{:.2}", param, state.lfo2.get_rate_hz()));
                     }
@@ -413,10 +420,11 @@ async fn msg_from_beatstep(msg: MidiMessage) -> Result<bool, MidiError> {
                         }
                     }
                 }
+                return Ok(())
             }
         _ => {}
     }
-    Ok(true)
+    Ok(())
 }
 
 #[derive(Debug, Copy, Clone)]

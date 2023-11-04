@@ -18,7 +18,7 @@ use cortex_m::peripheral::SCB;
 use cortex_m::peripheral::scb::FpuAccessMode;
 use cortex_m::Peripherals;
 use defmt::*;
-use embassy_executor::Spawner;
+use embassy_executor::{Spawner, SpawnError};
 
 use embassy_stm32::usart::{BufferedUart, BufferedUartRx, BufferedUartTx, Uart, UartRx, UartTx};
 use embassy_stm32::{bind_interrupts, peripherals, rng, usart};
@@ -46,6 +46,8 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 
 use embassy_time::{Duration, Timer};
+use midi::MidiChannel::CH1;
+
 use crate::port::serial_buffered::{BufferedSerialMidiIn, BufferedSerialMidiOut};
 use crate::resource::Shared;
 
@@ -92,6 +94,19 @@ static BLINK: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 type UsbDriver = Driver<'static, peripherals::USB_OTG_FS>;
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AppError {
+    Init,
+    Spawn(SpawnError),
+}
+
+impl From<SpawnError> for AppError {
+    fn from(value: SpawnError) -> Self {
+        AppError::Spawn(value)
+    }
+}
+
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) -> ! {
     device.run().await
@@ -107,51 +122,50 @@ async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) -> ! {
 //     }
 // }
 
-// use midi::{MidiMessage, Packet, PacketList, Velocity};
-// use midi::MidiChannel::CH1;
-// use midi::Note::C1;
+use midi::{MidiMessage, Packet, PacketList, Velocity};
+use midi::Note::C1;
 
-// #[embassy_executor::task]
-// async fn ping_uart5() -> ! {
-//     let mut midi2_out = MIDI_DIN_2_OUT.lock().await;
-//     loop {
-//         let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
-//         if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
-//             error!("uh {}", err)
-//         }
-//         Timer::after(Duration::from_millis(500)).await;
-//
-//         let p = Packet::from(MidiMessage::NoteOff(CH1, C1, Velocity::MAX));
-//         if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
-//             error!("uh {}", err)
-//         }
-//         Timer::after(Duration::from_millis(500)).await;
-//     }
-// }
-//
-// #[embassy_executor::task]
-// async fn echo_uart4() -> ! {
-//     let mut midi1_out = MIDI_DIN_1_OUT.lock().await;
-//     let mut midi1_in = MIDI_DIN_1_IN.lock().await;
-//     loop {
-//         if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
-//             if let Err(err) =  midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
-//                 error!("oups {}", err)
-//             }
-//         }
-//     }
-// }
-//
-// #[embassy_executor::task]
-// async fn print_uart5() -> ! {
-//     let mut midi2_in = MIDI_DIN_2_IN.lock().await;
-//     loop {
-//         if let Ok(packet) = midi2_in.get_mut().unwrap().receive().await {
-//             let message = MidiMessage::try_from(packet).unwrap();
-//             info!("{}", message);
-//         }
-//     }
-// }
+#[embassy_executor::task]
+async fn ping_uart5() -> ! {
+    let mut midi2_out = MIDI_DIN_2_OUT.lock().await;
+    loop {
+        let p = Packet::from(MidiMessage::NoteOn(CH1, C1, Velocity::MAX));
+        if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
+            error!("uh {}", err)
+        }
+        Timer::after(Duration::from_millis(500)).await;
+
+        let p = Packet::from(MidiMessage::NoteOff(CH1, C1, Velocity::MAX));
+        if let Err(err) = midi2_out.get_mut().unwrap().transmit(PacketList::single(p)).await {
+            error!("uh {}", err)
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn echo_uart4() -> ! {
+    let mut midi1_out = MIDI_DIN_1_OUT.lock().await;
+    let mut midi1_in = MIDI_DIN_1_IN.lock().await;
+    loop {
+        if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
+            if let Err(err) =  midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
+                error!("oups {}", err)
+            }
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn print_uart5() -> ! {
+    let mut midi2_in = MIDI_DIN_2_IN.lock().await;
+    loop {
+        if let Ok(packet) = midi2_in.get_mut().unwrap().receive().await {
+            let message = MidiMessage::try_from(packet).unwrap();
+            info!("{}", message);
+        }
+    }
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -241,6 +255,7 @@ async fn main(spawner: Spawner) {
     // Beatstep USB MIDI thru coprocessor
     // https://github.com/gdsports/usbhostcopro
     let mut config = usart::Config::default();
+    // config.baudrate = 31250;
     config.baudrate = 115200;
     let tx_buf = make_static!([0u8; 32]);
     let rx_buf = make_static!([0u8; 32]);
@@ -253,10 +268,30 @@ async fn main(spawner: Spawner) {
     // let led = make_static!(led);
     // unwrap!(spawner.spawn(blink(led)));
 
+    // loopback test, set same UART baudrate!
     // unwrap!(spawner.spawn(ping_uart5()));
     // unwrap!(spawner.spawn(echo_uart4()));
     // unwrap!(spawner.spawn(print_uart5()));
 
+    use midi::Note::*;
+    apps::blinky_beat::start_app(CH1, &[
+        D0,
+        Ds0,
+        E0,
+        F0,
+        Fs0,
+        G0,
+        Gs0,
+        A0,
+        As0,
+        B0,
+        C1,
+        Cs1,
+        D1,
+        Ds1,
+        E1,
+        F1,
+    ], spawner).await.unwrap();
     apps::dw6_control::start_app(spawner).await.unwrap();
 
     loop {

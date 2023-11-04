@@ -2,7 +2,7 @@
 //!
 use midi::{MidiMessage, Note, program_change, MidiError, U7, PacketList, channel, SysexError, Packet};
 
-use crate::{BLINK, midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
+use crate::{AppError, BLINK, midi, MIDI_DIN_1_IN, MIDI_DIN_2_IN, MIDI_DIN_2_OUT, sysex};
 
 use core::convert::TryFrom;
 
@@ -87,23 +87,6 @@ async fn lfo_mod() -> ! {
     }
 }
 
-// fn packets(bytes: impl Iterator<Item=u8>) -> SysexSeq<16> {
-//     SysexSeq::<16>::new(bytes)
-// }
-
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum AppError {
-    Init,
-    Spawn(SpawnError),
-}
-
-impl From<SpawnError> for AppError {
-    fn from(value: SpawnError) -> Self {
-        AppError::Spawn(value)
-    }
-}
-
 pub async fn start_app(spawner: Spawner) -> Result<(), AppError> {
     DW6_CTRL.lock().await.set(Dw6ControlInner {
         current_dump: None,
@@ -118,11 +101,8 @@ pub async fn start_app(spawner: Spawner) -> Result<(), AppError> {
     DW6_SYSEX_DUMP.lock().await.set(Vec::new()).map_err(|_| AppError::Init)?;
 
     spawner.spawn(bstep_rx())?;
-
-    unwrap!(spawner.spawn(dw6_rx()));
-
-    unwrap!(spawner.spawn(lfo_mod()));
-
+    spawner.spawn(dw6_rx())?;
+    spawner.spawn(lfo_mod())?;
     spawner.spawn(dw6_dump_request())?;
 
     info!("DW6000 Controller Active");

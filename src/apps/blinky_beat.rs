@@ -1,47 +1,59 @@
-use midi::{Note,  note_off, note_on, Velocity, PacketList, MidiInterface, MidiChannel};
-use crate::{devices, midi_send};
-use alloc::vec::Vec;
+use embassy_executor::Spawner;
+use embassy_time::{Duration, Timer};
+use heapless::Vec;
+use midi::{Note, note_off, note_on, Velocity, PacketList, MidiChannel, MidiError, channel};
+use midi::MidiChannel::CH1;
+use crate::{AppError, devices, MIDI_DIN_1_OUT};
 
 use devices::arturia::beatstep;
 use beatstep::Param::*;
 use beatstep::Pad::*;
 use crate::devices::arturia::beatstep::{SwitchMode};
+use crate::resource::Shared;
 
 #[derive(Debug)]
 struct InnerState {
     channel: MidiChannel,
-    notes: Vec<(Note, bool)>,
+    notes: Vec<(Note, bool), 16>,
 }
 
 impl InnerState {}
 
-static BLINKY_BEAT: Local<InnerState> = Local::uninit("BLINKY_BEAT");
+static BLINKY_BEAT: Shared<InnerState> = Shared::uninit("BLINKY_BEAT");
 
-/// MIDI Interface to BeatStep through MIDI USB Coprocessor
-const IF_BEATSTEP: MidiInterface = MidiInterface::UART(1);
+#[embassy_executor::task]
+async fn blinky() -> ! {
+    loop {
+        let mut z = BLINKY_BEAT.lock().await;
 
-pub fn start_app(channel: MidiChannel, notes: &[Note]) {
-    BLINKY_BEAT.init_static(InnerState {
+        //
+        midi_send(beatstep::beatstep_set(PadNote(Pad(0), z.get().unwrap().channel, Note::C1m, SwitchMode::Gate)).into()).await;
+
+        for (note, _) in &mut z.get_mut().unwrap().notes {
+            // if *on {
+            midi_send(PacketList::single(note_on(CH1, *note, Velocity::MAX).unwrap().into())).await;
+            Timer::after(Duration::from_millis(100)).await;
+            // } else {
+            midi_send(PacketList::single(note_off(CH1, *note, Velocity::MIN).unwrap().into())).await;
+            // }
+            // *on = !*on
+        }
+    }
+}
+
+async fn midi_send(packets: PacketList) {
+    let mut bs_out = MIDI_DIN_1_OUT.lock().await;
+    bs_out.get_mut().unwrap().transmit(packets.into()).await.unwrap();
+}
+
+pub async fn start_app(channel: MidiChannel, notes: &[Note], spawner: Spawner) -> Result<(), AppError> {
+    BLINKY_BEAT.lock().await.set(InnerState {
         channel,
         notes: notes.iter().map(|n| (*n, false)).collect(),
-    });
-    runtime::spawn(async move {
-        loop {
-            let z = unsafe { BLINKY_BEAT.raw_mut() };
-            for sysex in devices::arturia::beatstep::beatstep_set(PadNote(Pad(0), z.channel, Note::C1m, SwitchMode::Gate)) {
-                midi_send(IF_BEATSTEP, sysex.collect());
-            }
-            for (note, ref mut on) in &mut z.notes {
-                if *on {
-                    midi_send(IF_BEATSTEP, PacketList::single(note_on(MidiChannel(0), *note, Velocity::MAX).unwrap().into()));
-                } else {
-                    midi_send(IF_BEATSTEP, PacketList::single(note_off(MidiChannel(0), *note, Velocity::MIN).unwrap().into()));
-                }
-                *on = !*on
-            }
-            if runtime::delay(2000.millis()).await.is_err() { break; }
-        }
-    });
+    }).unwrap();
+
+    spawner.spawn(blinky())?;
 
     info!("BlinkyBeat Active");
+    Ok(())
 }

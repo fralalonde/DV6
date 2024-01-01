@@ -23,20 +23,27 @@ static BLINKY_BEAT: Shared<InnerState> = Shared::uninit("BLINKY_BEAT");
 
 #[embassy_executor::task]
 async fn blinky() -> ! {
+    let mut z = BLINKY_BEAT.lock().await;
+
+    // force set MIDI channel (simulate manual selection with CHAN+PAD)
+    // FIXME neither of these work, is setting channel possible?
+    //   alt: read current MIDI channel and use it (maybe even better?)
+    midi_send(beatstep::beatstep_set(CVGateChannel(CH1)).into()).await;
+    midi_send(beatstep::beatstep_set(GlobalMidiChannel(CH1)).into()).await;
+
+    midi_send(beatstep::beatstep_set(PadNote(Pad(0), z.get().unwrap().channel, Note::C1m, SwitchMode::Gate)).into()).await;
+
+    // turn off all LED pads
+    for (note, _) in &mut z.get_mut().unwrap().notes {
+        midi_send(PacketList::single(note_off(CH1, *note, Velocity::MIN).unwrap().into())).await;
+    }
+
+    // chase LEDs across all pads
     loop {
-        let mut z = BLINKY_BEAT.lock().await;
-
-        //
-        midi_send(beatstep::beatstep_set(PadNote(Pad(0), z.get().unwrap().channel, Note::C1m, SwitchMode::Gate)).into()).await;
-
         for (note, _) in &mut z.get_mut().unwrap().notes {
-            // if *on {
             midi_send(PacketList::single(note_on(CH1, *note, Velocity::MAX).unwrap().into())).await;
-            Timer::after(Duration::from_millis(100)).await;
-            // } else {
+            Timer::after(Duration::from_millis(50)).await;
             midi_send(PacketList::single(note_off(CH1, *note, Velocity::MIN).unwrap().into())).await;
-            // }
-            // *on = !*on
         }
     }
 }

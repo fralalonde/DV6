@@ -57,7 +57,7 @@ async fn dw6_rx() -> ! {
 async fn dw6_dump_request() -> ! {
     loop {
         let _ = dw6_send(PacketList::from_iter(dw6000::dump_request_sysex())).await;
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after(Duration::from_millis(5000)).await;
     }
 }
 

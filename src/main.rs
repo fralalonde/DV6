@@ -76,11 +76,11 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_OUT");
-static MIDI_DIN_2_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_2_IN");
+static MIDI_DIN_2_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_2_OUT");
+static MIDI_DIN_2_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_2_IN");
 
-static MIDI_DIN_1_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_1_OUT");
-static MIDI_DIN_1_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART4>> = Shared::uninit("MIDI_DIN_1_IN");
+static MIDI_DIN_1_OUT: Shared<BufferedSerialMidiOut<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_1_OUT");
+static MIDI_DIN_1_IN: Shared<BufferedSerialMidiIn<'static, peripherals::UART5>> = Shared::uninit("MIDI_DIN_1_IN");
 
 #[cfg(feature = "usb")]
 static MIDI_USB_1_OUT: Shared<midi_usb::Sender<'static, Driver<'static, peripherals::USB_OTG_FS>>> = Shared::uninit("MIDI_USB_1_OUT");
@@ -149,7 +149,7 @@ async fn echo_uart4() -> ! {
     let mut midi1_in = MIDI_DIN_1_IN.lock().await;
     loop {
         if let Ok(packet) = midi1_in.get_mut().unwrap().receive().await {
-            if let Err(err) =  midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
+            if let Err(err) = midi1_out.get_mut().unwrap().transmit(PacketList::single(packet)).await {
                 error!("oups {}", err)
             }
         }
@@ -242,31 +242,27 @@ async fn main(spawner: Spawner) {
 
     // DW-6000 DIN MIDI
     let mut config = usart::Config::default();
-    config.baudrate = 31250;
+    config.baudrate = 115200;
     let tx_buf = make_static!([0u8; 32]);
     let rx_buf = make_static!([0u8; 32]);
     // let mut uart1 = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.DMA1_CH0, NoDma, config);
     // let mut uart1 = Uart::new(p.UART7, p.PA8, p.PA15, Irqs, NoDma, NoDma, config);
-    let uart5 = BufferedUart::new(p.UART5, Irqs, p.PB5, p.PB6, tx_buf, rx_buf, config).unwrap();
+    let uart5 = BufferedUart::new(p.UART5, Irqs, p.PB5, p.PB6, rx_buf, tx_buf, config).unwrap();
     let (uart5_tx, uart5_rx) = uart5.split();
-    let _ = MIDI_DIN_2_OUT.lock().await.set(BufferedSerialMidiOut::new(uart5_tx));
-    let _ = MIDI_DIN_2_IN.lock().await.set(BufferedSerialMidiIn::new(uart5_rx));
+    let _ = MIDI_DIN_1_OUT.lock().await.set(BufferedSerialMidiOut::new(uart5_tx));
+    let _ = MIDI_DIN_1_IN.lock().await.set(BufferedSerialMidiIn::new(uart5_rx));
 
     // Beatstep USB MIDI thru coprocessor
     // https://github.com/gdsports/usbhostcopro
     let mut config = usart::Config::default();
     // config.baudrate = 31250;
-    config.baudrate = 115200;
+    config.baudrate = 31250;
     let tx_buf = make_static!([0u8; 32]);
     let rx_buf = make_static!([0u8; 32]);
-    let uart4 = BufferedUart::new(p.UART4, Irqs, p.PD0, p.PD1, tx_buf, rx_buf, config).unwrap();
+    let uart4 = BufferedUart::new(p.UART4, Irqs, p.PD0, p.PD1, rx_buf, tx_buf, config).unwrap();
     let (uart4_tx, uart4_rx) = uart4.split();
-    let _ = MIDI_DIN_1_OUT.lock().await.set(BufferedSerialMidiOut::new(uart4_tx));
-    let _ = MIDI_DIN_1_IN.lock().await.set(BufferedSerialMidiIn::new(uart4_rx));
-
-    let mut led = Output::new(p.PA1, Level::High, Speed::Low);
-    // let led = make_static!(led);
-    // unwrap!(spawner.spawn(blink(led)));
+    let _ = MIDI_DIN_2_OUT.lock().await.set(BufferedSerialMidiOut::new(uart4_tx));
+    let _ = MIDI_DIN_2_IN.lock().await.set(BufferedSerialMidiIn::new(uart4_rx));
 
     // loopback test, set same UART baudrate!
     // unwrap!(spawner.spawn(ping_uart5()));
@@ -294,11 +290,17 @@ async fn main(spawner: Spawner) {
     ], spawner).await.unwrap();
     apps::dw6_control::start_app(spawner).await.unwrap();
 
+    let mut led = Output::new(p.PA1, Level::High, Speed::Low);
+
+    // debugging: PE1 is corner pin next to SDCard on deveboxx STM32H7
+    // let mut led = Output::new(p.PE1, Level::High, Speed::Low);
+
     loop {
-        let _ = BLINK.wait().await;
+        // let _ = BLINK.wait().await;
         led.set_low();
-        Timer::after(Duration::from_millis(30)).await;
+        Timer::after(Duration::from_millis(200)).await;
         led.set_high();
+        Timer::after(Duration::from_millis(200)).await;
     }
 }
 

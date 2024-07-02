@@ -36,8 +36,6 @@ use embassy_stm32::usb_otg::Driver;
 
 use embassy_usb::{UsbDevice};
 
-use static_cell::make_static;
-
 use crate::port::midi_usb;
 use crate::port::midi_usb::MidiClass;
 
@@ -167,6 +165,15 @@ async fn print_uart5() -> ! {
     }
 }
 
+static mut TX1_BUFFER:[u8;32] = [0;32];
+
+static mut RX1_BUFFER:[u8;32] = [0;32];
+
+static mut TX2_BUFFER:[u8;32] = [0;32];
+
+static mut RX2_BUFFER:[u8;32] = [0;32];
+
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut core_peri = cortex_m::Peripherals::take().unwrap();
@@ -243,11 +250,10 @@ async fn main(spawner: Spawner) {
     // DW-6000 DIN MIDI
     let mut config = usart::Config::default();
     config.baudrate = 115200;
-    let tx_buf = make_static!([0u8; 32]);
-    let rx_buf = make_static!([0u8; 32]);
     // let mut uart1 = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.DMA1_CH0, NoDma, config);
     // let mut uart1 = Uart::new(p.UART7, p.PA8, p.PA15, Irqs, NoDma, NoDma, config);
-    let uart5 = BufferedUart::new(p.UART5, Irqs, p.PB5, p.PB6, rx_buf, tx_buf, config).unwrap();
+
+    let uart5 = unsafe { BufferedUart::new(p.UART5, Irqs, p.PB5, p.PB6, &mut RX1_BUFFER, &mut TX1_BUFFER, config).unwrap()};
     let (uart5_tx, uart5_rx) = uart5.split();
     let _ = MIDI_DIN_1_OUT.lock().await.set(BufferedSerialMidiOut::new(uart5_tx));
     let _ = MIDI_DIN_1_IN.lock().await.set(BufferedSerialMidiIn::new(uart5_rx));
@@ -257,9 +263,7 @@ async fn main(spawner: Spawner) {
     let mut config = usart::Config::default();
     // config.baudrate = 31250;
     config.baudrate = 31250;
-    let tx_buf = make_static!([0u8; 32]);
-    let rx_buf = make_static!([0u8; 32]);
-    let uart4 = BufferedUart::new(p.UART4, Irqs, p.PD0, p.PD1, rx_buf, tx_buf, config).unwrap();
+    let uart4 = unsafe { BufferedUart::new(p.UART4, Irqs, p.PD0, p.PD1, &mut RX2_BUFFER, &mut TX2_BUFFER, config).unwrap() };
     let (uart4_tx, uart4_rx) = uart4.split();
     let _ = MIDI_DIN_2_OUT.lock().await.set(BufferedSerialMidiOut::new(uart4_tx));
     let _ = MIDI_DIN_2_IN.lock().await.set(BufferedSerialMidiIn::new(uart4_rx));

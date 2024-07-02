@@ -21,11 +21,11 @@ embedded-io = { version = "0.6" }
 embedded-io-async = { version = "0.6" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3", default-features = false, features = ["async-await"] }
-heapless = { version = "0.7", default-features = false }
+heapless = { version = "0.8"}
 nb = "1"
 #embedded-storage = "0.3.0"
 micromath = "2"
-static_cell = { version = "2.1", features = ["nightly"] }
+#static_cell = { version = "2.1", features = ["nightly"] }
 chrono = { version = "^0.4", default-features = false }
 bitfield = "0.15"
 
